@@ -5,6 +5,8 @@ import { RoadIndex, ZoneDistance, fbm2, smooth, zoneIndices } from './kit'
 import type { Biome, BuildCtx, FrameCtx, BiomeEvents } from './types'
 import { Volcano } from './Volcano'
 import { Canyon } from './Canyon'
+import { Stadium } from './Finish'
+import { buildGates, buildLandmarks } from './Spectacle'
 import { Desert, STORM } from './Desert'
 import { Snow } from './Snow'
 import { SkyIslands } from './SkyIslands'
@@ -34,6 +36,8 @@ export class Biomes {
   readonly group = new THREE.Group()
   readonly terrain: Terrain
   readonly canyon: Canyon
+  readonly stadium: Stadium
+  private marks: { globe: THREE.Object3D; tree: THREE.Object3D } | null = null
   readonly volcano: Volcano
   readonly desert: Desert
   readonly snow: Snow
@@ -51,13 +55,14 @@ export class Biomes {
   constructor(private readonly track: Track, hooks: Pick<BuildCtx, 'addKicker' | 'addBoost'>) {
     this.grades = new GradeTable(track)
     this.canyon = new Canyon(track)
+    this.stadium = new Stadium(track)
     this.volcano = new Volcano(track)
     this.desert = new Desert(track)
     this.snow = new Snow(track)
     this.sky = new SkyIslands(track)
     this.jungle = new Jungle(track)
     this.city = new NeonCity(track)
-    this.list = [this.canyon, this.volcano, this.desert, this.snow, this.sky, this.jungle, this.city]
+    this.list = [this.stadium, this.canyon, this.volcano, this.desert, this.snow, this.sky, this.jungle, this.city]
 
     const fields: TerrainField[] = [this.fillerField(), this.hiddenField()]
     for (const b of this.list) fields.push(...b.fields())
@@ -86,6 +91,15 @@ export class Biomes {
     const groups = Object.fromEntries(this.list.map((b) => [b.name, b.group]))
     placeBiomeProps(ctx, groups)
     buildRhythm(ctx, groups)
+    this.marks = buildLandmarks(ctx, groups)
+    const inside = (i: number) => this.enclosed(i) || track.isPlankDeck(i)
+    buildGates(track, groups['coast']!, ['town', 'coast', 'causeway'], 60, inside)
+    buildGates(track, groups['canyon']!, ['canyon'], 70, inside)
+    buildGates(track, groups['volcano']!, ['volcano'], 70, (i) => inside(i) || this.volcano.onBridge(i))
+    buildGates(track, groups['desert']!, ['desert', 'saltflat'], 85, inside)
+    buildGates(track, groups['snow']!, ['snow'], 75, inside)
+    buildGates(track, groups['jungle']!, ['jungle'], 75, inside)
+    buildGates(track, groups['city']!, ['city'], 60, inside)
     this.group.add(this.particles.group)
     /** Resolves once the scanned props have loaded (or failed). */
     this.propsReady = props.loadAll()
@@ -108,7 +122,9 @@ export class Biomes {
       afterTunnel = false
       if (storm.has(i)) return 'sandstorm'
       if (zone === 'roll' || zone === 'flight3') return 'sky'
-      return zone in { volcano: 1, desert: 1, saltflat: 1, snow: 1, sky: 1, jungle: 1 } ? zone : null
+      if (zone === 'town' || zone === 'causeway') return 'coast'
+      if (zone === 'loop') return track.samples[i]!.y > 0 ? 'canyon' : null
+      return zone in { coast: 1, canyon: 1, volcano: 1, desert: 1, saltflat: 1, snow: 1, sky: 1, jungle: 1 } ? zone : null
     })
   }
 
@@ -141,12 +157,19 @@ export class Biomes {
 
   /** Ice and mud: extra sideways slip and drag at sample i. */
   surface(i: number): { slip: number; drag: number } | null {
-    return this.snow.surface(i) ?? this.jungle.surface(i)
+    const z = this.track.zoneOfSample(i)
+    return this.snow.surface(i) ?? this.jungle.surface(i) ?? (z === 'snow' ? { slip: 0.13, drag: 0 } : z === 'underwater' ? { slip: 0.2, drag: 0 } : null)
   }
 
   update(f: FrameCtx, ev: BiomeEvents): void {
     this.terrain.update(f.time)
     props.cull(f.camera.position)
     for (const b of this.list) b.update(f, ev)
+    if (this.marks) {
+      // only over their own areas, so they never spoil the mood next door
+      this.marks.globe.rotation.y = f.time * 0.12
+      this.marks.globe.visible = f.zone === 'city' || f.zone === 'jungle'
+      this.marks.tree.visible = f.zone === 'jungle' || f.zone === 'flight3' || f.zone === 'city'
+    }
   }
 }

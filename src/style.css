@@ -914,3 +914,10 @@ html, body {
 }
 .danger-track { height: 5px; margin-top: 4px; border-radius: 3px; overflow: hidden; background: rgba(255, 255, 255, 0.16); }
 #danger-fill { height: 100%; transform-origin: left center; transform: scaleX(0); }
+
+/* ── Results beside the trophy ── */
+#end-screen { justify-content: flex-end; padding-right: clamp(16px, 8vw, 130px); }
+.end-vignette { background: linear-gradient(270deg, rgba(6, 8, 18, 0.82) 0%, rgba(6, 8, 18, 0.35) 44%, transparent 62%); }
+@media (max-width: 700px) { #end-screen { justify-content: center; padding-right: 0; } .end-vignette { background: rgba(6, 8, 18, 0.7); } }
+.logo-horizon { background: linear-gradient(180deg, #ffffff 8%, #ffd0e6 48%, #ff3b6b 100%); -webkit-background-clip: text; background-clip: text; filter: drop-shadow(0 0 22px rgba(255, 50, 110, 0.55)); }
+.logo-drive { color: #4fe3ff; letter-spacing: 0.34em; text-shadow: 0 0 16px rgba(79, 227, 255, 0.7); }

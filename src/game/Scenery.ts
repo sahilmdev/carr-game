@@ -12,6 +12,8 @@ import { treePool } from './Trees'
 import { Biomes } from './biomes'
 import { Countryside } from './biomes/Countryside'
 import { buildSpaceExtras } from './SpaceExtras'
+import { buildGates, spaceLandmark } from './biomes/Spectacle'
+import { canvasTexture, instanced } from './biomes/kit'
 
 /**
  * Replace the cartoon low-poly town buildings with code-generated realistic
@@ -39,7 +41,7 @@ const GROUND_SIZE = 3800
  * rocks, bubbles, shark, fish), launch ramps (support buttresses), SPACE
  * (floating moon plateau, craters, Earth, satellite), canyon (varied rock
  * spires + mesas), plus balloons, sailboats, mountains, camera flashes and
- * the HORIZON Drive start gate.
+ * the Nitro Cosmos start gate.
  */
 export class Scenery {
   public readonly group: THREE.Group
@@ -163,9 +165,10 @@ export class Scenery {
       const g = new THREE.Group()
       this.group.add(g)
       this.spaceExtras = buildSpaceExtras(this.track, g, (x, z, r) => this.claimSpaceSpot(x, z, r))
+      spaceLandmark(g)
+      buildGates(this.track, g, ['space'], 70)
     })
     land(() => this.buildCanyon())
-    land(() => this.buildChevrons())
     land(() => this.buildRoadsidePosts())
     const details = buildRoadDetails(this.track) // kept out of naturalize(): real colors already
     this.group.add(details)
@@ -182,6 +185,7 @@ export class Scenery {
     })
     this.group.add(this.biomes.group, this.biomes.lights)
     for (const b of this.biomes.list) this.surfaceProps.push(b.group)
+    land(() => this.buildChevrons())
     this.vegetation = new Vegetation(this.track)
     this.group.add(this.vegetation.group)
     this.surfaceProps.push(this.vegetation.group)
@@ -2123,69 +2127,52 @@ export class Scenery {
     }
   }
 
-  // ── Directional chevron light-signs on sharp curves (not underwater) ─
+  // ── Huge glowing arrow boards on every real corner, in each area's colour ─
   private buildChevrons(): void {
     const track = this.track
     const n = track.sampleCount
-    // Real-world curve sign: black chevrons on a reflective yellow board
-    const chevMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.6 })
-    const boardMat = new THREE.MeshStandardMaterial({ color: 0xf2c400, roughness: 0.5 })
-    const poleMat = new THREE.MeshStandardMaterial({ color: 0x8a8f94, roughness: 0.45, metalness: 0.7 })
-
-    // Build a reusable chevron board (3 arrows) pointing +X
-    const makeBoard = (dir: number): THREE.Group => {
-      const g = new THREE.Group()
-      // yellow face, bare grey metal on the back and edges
-      const board = new THREE.Mesh(new THREE.BoxGeometry(3.4, 2.2, 0.2), [poleMat, poleMat, poleMat, poleMat, boardMat, poleMat])
-      board.position.y = 3.4
-      g.add(board)
-      for (let a = 0; a < 3; a++) {
-        const chev = new THREE.Group()
-        for (const s of [-1, 1]) {
-          const bar = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.42, 0.12), chevMat)
-          bar.position.set(0, s * 0.5, 0.16)
-          bar.rotation.z = s * dir * 0.7
-          chev.add(bar)
-        }
-        chev.position.set(-1 + a * 1.0, 3.4, 0)
-        g.add(chev)
+    const tex = canvasTexture(512, 256, (c, w, h) => {
+      c.fillStyle = '#0b0d14'
+      c.fillRect(0, 0, w, h)
+      c.fillStyle = '#ffffff'
+      for (let k = 0; k < 3; k++) {
+        const x = 34 + k * 156
+        c.beginPath()
+        c.moveTo(x, 26); c.lineTo(x + 66, 26); c.lineTo(x + 150, h / 2); c.lineTo(x + 66, h - 26); c.lineTo(x, h - 26); c.lineTo(x + 84, h / 2)
+        c.closePath()
+        c.fill()
       }
-      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 3.4, 6), poleMat)
-      pole.position.y = 1.7
-      g.add(pole)
-      return g
-    }
-
+    })
+    const boards: THREE.Matrix4[] = [], tints: THREE.Color[] = [], poles: THREE.Matrix4[] = []
     let lastPlaced = -999
     for (let i = 0; i < n; i += 4) {
       const zone = track.zoneOfSample(i)
-      // the newer biomes carry their own signage
-      if (!(zone === 'town' || zone === 'coast' || zone === 'causeway' || zone === 'canyon' || zone === 'space') || track.isGap(i)) continue
-      // Curvature: angle between tangents a few samples apart
-      const a = track.tangents[i]!
-      const b = track.tangents[(i + 12) % n]!
-      const cross = a.x * b.z - a.z * b.x
-      const turn = Math.abs(cross)
-      if (turn < 0.06 || i - lastPlaced < 24) continue
-      lastPlaced = i
+      if (zone === 'underwater' || zone === 'rampUp' || zone === 'space' || zone === 'saltflat' || track.isGap(i) || track.isGlassDeck(i) || this.biomes.enclosed(i)) continue
+      const t = track.tangents[i]!, b2 = track.tangents[(i + 12) % n]!
+      const cross = t.x * b2.z - t.z * b2.x
+      if (Math.abs(cross) < 0.05 || i - lastPlaced < 34) continue
       const p = track.samples[i]!
       const right = this.rightAt(i)
       const side = cross > 0 ? 1 : -1 // outside of the curve
-      // Face the chevrons at ONCOMING traffic (they used to face away from
-      // the road, so drivers only saw the blank back), angled slightly in
-      const t = track.tangents[i]!
-      const fx = -t.x - right.x * side * 0.35, fz = -t.z - right.z * side * 0.35
-      const yaw = Math.atan2(fx, fz)
-      // Arrows point into the bend: local -X when dir = 1, +X when dir = -1
-      const lx = Math.cos(yaw), lz = -Math.sin(yaw) // board's +X in world
-      const inward = -(lx * right.x + lz * right.z) * side
-      const dir = inward > 0 ? -1 : 1
-      const pos = p.clone().addScaledVector(right, side * (track.width / 2 + 2.5))
-      const board = makeBoard(dir)
-      board.position.set(pos.x, p.y, pos.z)
-      board.rotation.y = yaw
-      this.group.add(board)
+      const off = track.width / 2 + 5
+      const x = p.x + right.x * side * off, z = p.z + right.z * side * off
+      // never stand on another pass of the road
+      let clear = true
+      for (let q = 0; q < n && clear; q += 3) { const s = track.samples[q]!; if (Math.abs(s.y - p.y) < 8 && (s.x - x) ** 2 + (s.z - z) ** 2 < 144) clear = false }
+      if (!clear) continue
+      lastPlaced = i
+      // face oncoming traffic, turned a little toward the road
+      const yaw = Math.atan2(-t.x - right.x * side * 0.4, -t.z - right.z * side * 0.4)
+      // the texture points to +X; flip it when the bend runs the other way
+      const lx = Math.cos(yaw), lz = -Math.sin(yaw)
+      const flip = (lx * right.x + lz * right.z) * side > 0 ? -1 : 1
+      const m = new THREE.Matrix4().compose(new THREE.Vector3(x, p.y + 5.4, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, yaw, 0)), new THREE.Vector3(flip, 1, 1))
+      boards.push(m)
+      tints.push(track.accents[i]!.clone().lerp(new THREE.Color(1, 0.9, 0.25), 0.25).multiplyScalar(2.1))
+      poles.push(new THREE.Matrix4().makeTranslation(x, p.y - 1, z))
     }
+    this.group.add(instanced(new THREE.PlaneGeometry(9, 4.5), new THREE.MeshBasicMaterial({ map: tex, toneMapped: false, side: THREE.DoubleSide }), boards, tints, false))
+    this.group.add(instanced(new THREE.CylinderGeometry(0.16, 0.2, 9, 8), new THREE.MeshStandardMaterial({ color: 0x20232b, metalness: 0.6, roughness: 0.5 }), poles))
   }
 
   /**
@@ -2840,9 +2827,9 @@ export class Scenery {
     const f1 = `italic 800 ${h * 0.56}px "Barlow Condensed", Arial, sans-serif`
     const f2 = `italic 700 ${h * 0.5}px "Barlow Condensed", Arial, sans-serif`
     ctx.font = f1
-    const w1 = ctx.measureText('HORIZON').width
+    const w1 = ctx.measureText('NITRO').width
     ctx.font = f2
-    const w2 = ctx.measureText('DRIVE').width
+    const w2 = ctx.measureText('COSMOS').width
     const gap = h * 0.25
     const scale = Math.min(1, (w * 0.9) / (w1 + gap + w2))
     ctx.save()
@@ -2851,10 +2838,10 @@ export class Scenery {
     const x0 = -(w1 + gap + w2) / 2
     ctx.font = f1
     ctx.fillStyle = '#132a4f'
-    ctx.fillText('HORIZON', x0, h * 0.02)
+    ctx.fillText('NITRO', x0, h * 0.02)
     ctx.font = f2
     ctx.fillStyle = '#c8202e'
-    ctx.fillText('DRIVE', x0 + w1 + gap, h * 0.03)
+    ctx.fillText('COSMOS', x0 + w1 + gap, h * 0.03)
     ctx.restore()
   }
 

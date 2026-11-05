@@ -2,7 +2,7 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "horizon-drive",
+      "name": "nitro-cosmos",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "port": 5188,

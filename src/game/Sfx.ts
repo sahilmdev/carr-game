@@ -4,8 +4,8 @@
  */
 export type SfxName =
   | 'crack' | 'shatter' | 'grate' | 'boom' | 'eruption' | 'whumpf' | 'thud' | 'ring' | 'gust'
-  | 'rocketLaunch' | 'rockfall' | 'rockImpact' | 'sting' | 'fail' | 'whale'
-export type LoopName = 'lava' | 'avalanche' | 'storm' | 'rocket'
+  | 'rocketLaunch' | 'rockfall' | 'rockImpact' | 'sting' | 'fail' | 'whale' | 'splash' | 'firework' | 'cheer' | 'meltdown'
+export type LoopName = 'lava' | 'avalanche' | 'storm' | 'rocket' | 'crowd'
 type BedName = 'sea' | 'deep' | 'space' | 'wind' | 'magma' | 'insects' | 'city'
 
 /** Ambient mix per area: bed levels, plus how bright the wind sounds. */
@@ -206,6 +206,24 @@ export class SoundFx {
         this.tone('triangle', 330, 318, 0.16 * v, 0.28)
         this.tone('triangle', 233, 220, 0.16 * v, 0.5, 0.2)
         break
+      case 'splash':
+        this.burst('lowpass', 2400, 180, 0.7, 0.9 * v, 0.01, 0.7)
+        this.burst('highpass', 3000, 1500, 0.6, 0.3 * v, 0.02, 1.1, 0.05)
+        break
+      case 'firework':
+        this.tone('sine', 300, 1300, 0.05 * v, 0.5)
+        this.burst('lowpass', 900, 70, 1, 0.8 * v, 0.004, 0.55, 0.5)
+        for (let k = 0; k < 7; k++) this.burst('highpass', 4200, 2600, 1, 0.09 * v, 0.002, 0.08, 0.7 + r() * 0.7)
+        break
+      case 'cheer':
+        this.burst('bandpass', 900, 1500, 0.5, 0.8 * v, 0.35, 3.2)
+        this.burst('bandpass', 2100, 2800, 0.8, 0.28 * v, 0.3, 2.6, 0.1)
+        break
+      case 'meltdown':
+        this.burst('lowpass', 1500, 50, 0.8, 1.1 * v, 0.006, 1.5)
+        this.tone('sawtooth', 240, 42, 0.2 * v, 1.1)
+        this.burst('highpass', 2600, 900, 0.7, 0.3 * v, 0.03, 1.4, 0.1)
+        break
       case 'whale': {
         const f = 150 + r() * 60
         this.tone('sine', f, f * 2.1, 0.16 * v, 1.5, 0, 0.45)
@@ -232,6 +250,12 @@ export class SoundFx {
       o.connect(og)
       og.connect(g)
       o.start()
+    } else if (name === 'crowd') {
+      const a = this.looped('bandpass', 760, 0.6, g, 1.5)
+      this.lfo(0.37, 180, a.frequency)
+      const b = this.looped('bandpass', 1700, 1.1, g, 0.6)
+      this.lfo(0.71, 330, b.frequency)
+      this.looped('lowpass', 240, 0.7, g, 0.5)
     } else if (name === 'avalanche') {
       this.looped('lowpass', 95, 1, g, 1.6)
       const roar = this.looped('lowpass', 520, 0.8, g, 0.8)
@@ -268,7 +292,7 @@ export class SoundFx {
   setLoop(name: LoopName, level: number): void {
     const g = this.loops.get(name) ?? (level > 0 ? this.buildLoop(name) : null)
     if (!g) return
-    const peak = name === 'storm' ? 0.3 : name === 'rocket' ? 0.24 : 0.3
+    const peak = name === 'storm' ? 0.3 : name === 'rocket' ? 0.24 : name === 'crowd' ? 0.34 : 0.3
     g.gain.setTargetAtTime(level * peak, this.ctx.currentTime, level > 0 ? 0.18 : 0.5)
   }
 

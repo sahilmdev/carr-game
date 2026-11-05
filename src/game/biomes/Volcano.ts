@@ -56,6 +56,14 @@ export class Volcano implements Biome {
   private cracks: THREE.Mesh[] = []
   private spray: THREE.Sprite[] = []
   private geysers: THREE.Sprite[] = []
+  /** 0–1: the car cooks near lava. At 1 the engine melts and the run is lost. */
+  private heat = 0
+  /** Half the road turns to lava ahead of you, always on alternating sides. */
+  private breaches: { k0: number; k1: number; side: number; mesh: THREE.Mesh; open: boolean }[] = []
+  private blast: THREE.Sprite[] = []
+  private blastT = -1
+  private onLava = false
+  private readonly kickerIds: number[] = []
 
   constructor(private readonly track: Track) {
     this.idx = zoneIndices(track, 'volcano')
@@ -64,7 +72,7 @@ export class Volcano implements Biome {
     this.idx.forEach((i, k) => {
       const p = track.samples[i]!
       const r = Math.hypot(p.x - V.x, p.z - V.z)
-      if (k > n * 0.6 && r > 100 && r < 178) this.tunnelIdx.add(i)
+      if (k > n * 0.35 && r > 100 && r < 178) this.tunnelIdx.add(i)
       if (this.channelDist(p.x, p.z) < 16 && r < 120) this.bridgeIdx.add(i)
     })
   }
@@ -161,6 +169,10 @@ export class Volcano implements Biome {
   private bores: Set<number> | null = null
   private boreIndex: RoadIndex | null = null
 
+  onBridge(i: number): boolean {
+    return this.bridgeIdx.has(i)
+  }
+
   inTube(i: number): boolean {
     return this.tunnelIdx.has(i)
   }
@@ -225,8 +237,10 @@ export class Volcano implements Biome {
     const ids = this.idx.slice(Math.floor(n * 0.1))
     this.chase = new Chase(t, ids, {
       label: 'LAVA', loop: 'lava', startSfx: 'eruption', caughtSfx: 'boom', color: '#ff4a10', startGap: 46, base: 58, holdGap: 30,
-      startText: 'ERUPTION  DRIVE', caughtText: 'LAVA CAUGHT YOU',
+      startText: 'ERUPTION  GET OUT', caughtText: 'LAVA CAUGHT YOU',
       endText: (m) => `ESCAPED THE LAVA  ${m} M CLEAR  NITRO FULL`,
+      onCatch: (ev) => { this.heat += 0.45; ev.hit(0.6); ev.toast('LAVA CAUGHT YOU'); ev.sfx('boom') },
+      status: () => ({ text: this.heat > 0.02 ? `HEAT ${Math.round(this.heat * 100)}%` : '', level: this.heat }),
     })
     const flow = lavaMaterial(true, this.lavaShaders)
     const strip = (lat: number, width: number, up: number): THREE.Mesh => {
@@ -251,18 +265,21 @@ export class Volcano implements Biome {
       this.group.add(s)
     }
     // fissures across the road, well clear of the bridge, its kicker and the tube
-    for (const fr of [0.2, 0.46]) {
+    for (const fr of [0.16, 0.34, 0.9]) {
       let k = Math.floor(n * fr)
       const clear = (q: number) => {
         for (let d = -70; d <= 70; d++) { const i = this.idx[q + d]; if (i !== undefined && (this.bridgeIdx.has(i) || this.tunnelIdx.has(i))) return false }
         return true
       }
-      while (k < n * 0.6 && !clear(k)) k += 10
-      if (k >= n * 0.6) continue
+      while (k < n * 0.97 && !clear(k)) k += 10
+      if (k >= n * 0.97) continue
+      const river = fr === 0.9 // the last one is the leap out of the volcano
       const i = this.idx[k]!, p = t.samples[i]!, r = rightAt(t, i), tg = t.tangents[i]!
-      ctx.addKicker(i, 15)
-      const bar = new THREE.Mesh(new THREE.PlaneGeometry(t.width + 1, 2.2), flow)
+      this.kickerIds.push(i)
+      ctx.addKicker(i, river ? 9 : 15)
+      const bar = new THREE.Mesh(new THREE.PlaneGeometry(t.width + 1, river ? 34 : 2.2), flow)
       bar.position.copy(p).setY(p.y + 0.12)
+      if (river) { const q = t.samples[this.idx[k + 12]!]!; bar.position.set(q.x, q.y + 0.12, q.z) }
       bar.rotation.set(-Math.PI / 2, 0, Math.atan2(r.x, r.z) - Math.PI / 2)
       this.group.add(bar)
       for (let q = 0; q < 7; q++) {
@@ -273,8 +290,94 @@ export class Volcano implements Biome {
         this.geysers.push(s)
         this.group.add(s)
       }
-      this.group.add(besideRoad(t, this.idx[Math.max(0, k - 50)]!, 14, roadSign(['FISSURE AHEAD', 'HIT IT FLAT OUT'], '#f2c400', '#111')))
+      this.group.add(besideRoad(t, this.idx[Math.max(0, k - 50)]!, 14, roadSign(river ? ['LAVA RIVER', 'JUMP IT'] : ['FISSURE AHEAD', 'HIT IT FLAT OUT'], '#f2c400', '#111')))
       void tg
+    }
+    this.buildBreaches(ids, flow, dot)
+    // the summit blowing: a column of fire you can see the whole way up the flank
+    for (let k = 0; k < 22; k++) {
+      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: dot, color: k % 3 ? 0xff5a14 : 0xffc04a, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false, opacity: 0 }))
+      s.visible = false
+      s.userData['a'] = this.rand() * Math.PI * 2
+      s.userData['v'] = 0.55 + this.rand() * 0.6
+      this.blast.push(s)
+      this.group.add(s)
+    }
+  }
+
+  /** Lava flows that burst over one half of the road as you approach. */
+  private buildBreaches(ids: number[], flow: THREE.Material, dot: THREE.Texture): void {
+    const t = this.track
+    const pos = new Map(ids.map((i, k) => [i, k]))
+    const blocked = (k: number) => {
+      for (let d = -6; d <= 34; d += 2) {
+        const i = ids[k + d]
+        if (i === undefined || this.bridgeIdx.has(i) || this.tunnelIdx.has(i) || t.isGap(i)) return true
+      }
+      return this.kickerIds.some((q) => { const d = (pos.get(q) ?? 1e9) - k; return d > -14 && d < 44 })
+    }
+    let side = 1, k = 70
+    while (k < ids.length - 60) {
+      if (blocked(k)) { k += 3; continue }
+      const k1 = k + 30, lat = side * (t.width / 4 + 0.4)
+      const pts = ids.slice(k, k1).map((i) => {
+        const p = t.samples[i]!, r = rightAt(t, i)
+        return new THREE.Vector3(p.x + r.x * lat, p.y + 0.2, p.z + r.z * lat)
+      })
+      const mesh = this.ribbon(pts, t.width / 2 + 1, flow)
+      mesh.visible = false
+      mesh.frustumCulled = false
+      this.group.add(mesh)
+      this.breaches.push({ k0: k, k1, side, mesh, open: false })
+      for (let q = 0; q < 4; q++) {
+        const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: dot, color: 0xff8a2a, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }))
+        s.userData['base'] = pts[Math.floor((q + 0.5) * pts.length / 4)]!.clone()
+        s.userData['ph'] = this.rand()
+        s.userData['breach'] = this.breaches.length - 1
+        s.visible = false
+        this.geysers.push(s)
+        this.group.add(s)
+      }
+      side = -side
+      k = k1 + 50
+    }
+  }
+
+  /** Heat, breaches and the summit blast. */
+  private updateMeltdown(f: FrameCtx, ev: BiomeEvents): void {
+    const c = this.chase!, t = this.track
+    if (!c.running) {
+      for (const b of this.breaches) { b.mesh.visible = false; b.open = false }
+      this.heat = 0
+      this.onLava = false
+      return
+    }
+    if (this.blastT < 0) { this.blastT = 0; ev.flash(0xff5a14, 0.8); ev.rumble(0.7) }
+    const i = c.ids[c.carK]!, p = t.samples[i]!, r = rightAt(t, i)
+    const lat = (f.carPos.x - p.x) * r.x + (f.carPos.z - p.z) * r.z
+    let burning = false
+    for (const b of this.breaches) {
+      if (!b.open && c.carK > b.k0 - 125 && c.carK < b.k1) {
+        b.open = true
+        b.mesh.visible = true
+        ev.sfx('crack')
+        ev.rumble(0.3)
+        ev.toast(b.side > 0 ? '◀ LAVA RIGHT  GO LEFT' : 'LAVA LEFT  GO RIGHT ▶')
+      }
+      if (c.carK >= b.k0 && c.carK <= b.k1 && lat * b.side > -0.4) burning = true
+    }
+    const near = Math.max(0, 1 - c.gap / 70)
+    this.heat += f.dt * (burning ? 0.6 : near * near * 0.22 - (near < 0.3 ? 0.05 : 0))
+    this.heat = Math.max(0, this.heat)
+    if (burning) {
+      if (!this.onLava) { ev.sfx('boom', 0.6); ev.flash(0xff4a10, 0.35) }
+      ev.rumble(f.dt * 3)
+    }
+    this.onLava = burning
+    if (this.heat >= 1) {
+      this.heat = 0.4
+      ev.wreck('ENGINE MELTED  +4 SEC')
+      c.setBack(75, 4)
     }
   }
 
@@ -282,6 +385,7 @@ export class Volcano implements Biome {
     const c = this.chase
     if (!c) return
     c.update(f, ev)
+    this.updateMeltdown(f, ev)
     const on = c.running
     if (this.lavaRoad) this.lavaRoad.visible = on
     for (const m of this.cracks) m.visible = on
@@ -629,7 +733,23 @@ export class Volcano implements Biome {
     }
 
     this.updateChase(f, ev)
+    if (this.blastT >= 0 && this.blastT < 6) {
+      this.blastT += f.dt
+      for (const s of this.blast) {
+        const a = s.userData['a'] as number, v = s.userData['v'] as number
+        const u = Math.min(1, this.blastT * v / 3.4)
+        s.visible = true
+        s.position.set(V.x + Math.cos(a) * u * 70, 30 + 300 * u * (1.25 - 0.5 * u), V.z + Math.sin(a) * u * 70)
+        s.scale.setScalar(50 + u * 170)
+        ;(s.material as THREE.SpriteMaterial).opacity = 0.95 * (1 - u)
+      }
+      this.glow.intensity *= 1 + 3 * (1 - smooth(0, 5, this.blastT))
+      if (this.blastT >= 6) for (const s of this.blast) s.visible = false
+    }
+    if (!this.chase?.running && f.zone !== 'volcano') this.blastT = -1
     for (const s of this.geysers) {
+      const br = s.userData['breach'] as number | undefined
+      if (br !== undefined) { s.visible = this.breaches[br]!.open; if (!s.visible) continue }
       const ph = ((s.userData['ph'] as number) + f.time * 0.8) % 1
       const b = s.userData['base'] as THREE.Vector3
       s.position.set(b.x, b.y + ph * 11, b.z)
@@ -662,7 +782,7 @@ export class Volcano implements Biome {
         this.impact(b.to)
         const d = Math.hypot(f.carPos.x - b.to.x, f.carPos.z - b.to.z)
         ev.sfx('boom', 0.9 - d / 190)
-        if (d < 6) ev.hit(1 - d / 8)
+        if (d < 6) { ev.hit(1 - d / 8); this.heat += 0.18 }
       }
     }
     for (const x of this.bursts) {

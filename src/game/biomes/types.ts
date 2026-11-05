@@ -46,6 +46,10 @@ export interface BiomeEvents {
   rumble(amount: number): void
   /** Full nitro. */
   refill(): void
+  /** Full-screen colour flash. */
+  flash(color: number, amount: number): void
+  /** The car is destroyed: stops dead, costs time, restarts on the road. */
+  wreck(text: string): void
   /** Slipstreaming behind traffic started / stopped. */
   draft(on: boolean): void
 }

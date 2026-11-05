@@ -286,7 +286,7 @@ export class NeonCity implements Biome {
       g.textBaseline = 'middle'
       g.font = 'italic 800 74px "Barlow Condensed", Arial'
       const x = W / 2 + Math.sin(time * 0.8) * 20
-      g.fillText('HORIZON', x, H * 0.42)
+      g.fillText('COSMOS', x, H * 0.42)
       g.font = '700 30px Rajdhani, Arial'
       g.fillText(['DRIVE THE NIGHT', 'NEON CITY', 'OPEN 24/7'][Math.floor(time / 3) % 3]!, W / 2, H * 0.75)
       h.tex.needsUpdate = true

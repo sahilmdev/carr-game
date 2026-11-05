@@ -154,8 +154,9 @@ const ui: GameUI = {
     if (r.laps.length > 1) r.laps.forEach((ms, i) => row(`LAP ${i + 1}`, formatTime(ms), ms === fastest))
     row(r.isNewBestLap ? 'BEST LAP (NEW!)' : 'BEST LAP', formatTime(r.bestLapMs), r.isNewBestLap)
     if (isTouchDevice) touchControls.classList.add('hidden')
-    setTimeout(() => endScreen.classList.remove('hidden'), 900)
+    hud.classList.add('hidden')
   },
+  showResults: () => { if (game.phase === 'finished') endScreen.classList.remove('hidden') },
 }
 
 const game = new Game(canvas, minimapCanvas, ui)
@@ -219,7 +220,7 @@ async function savePhoto(): Promise<void> {
   const a = document.createElement('a')
   a.href = URL.createObjectURL(blob)
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-  a.download = `horizon-drive-${stamp}.png`
+  a.download = `nitro-cosmos-${stamp}.png`
   a.click()
   setTimeout(() => URL.revokeObjectURL(a.href), 2000)
   photoFlash.classList.remove('on')
@@ -408,3 +409,27 @@ bindTouch('touch-brake', (a) => input.setTouchBrake(a))
 bindTouch('touch-left', (a) => input.setTouchLeft(a))
 bindTouch('touch-right', (a) => input.setTouchRight(a))
 bindTouch('touch-nitro', (a) => input.setTouchNitro(a))
+
+// ── FPS counter (press F) ──────────────────────────────────────────────
+{
+  const el = document.createElement('div')
+  el.style.cssText = 'position:fixed;left:20px;top:64px;z-index:50;padding:4px 10px;border-radius:6px;background:rgba(6,8,18,.6);color:#fff;font:700 15px Rajdhani,sans-serif;display:none'
+  document.body.append(el)
+  let frames = 0, last = performance.now()
+  const tick = (now: number) => {
+    frames++
+    if (now - last >= 500) {
+      el.textContent = `${Math.round(frames * 1000 / (now - last))} FPS`
+      frames = 0
+      last = now
+    }
+    requestAnimationFrame(tick)
+  }
+  requestAnimationFrame(tick)
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'KeyF' && !game.photoMode) el.style.display = el.style.display === 'none' ? 'block' : 'none'
+  })
+}
+
+// Any key or click skips the finish film straight to the trophy
+for (const type of ['keydown', 'pointerdown'] as const) window.addEventListener(type, () => game.skipFinish())

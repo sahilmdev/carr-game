@@ -3,6 +3,7 @@ import { softDot } from './biomes/kit'
 import { SeaLife } from './SeaLife'
 import type { Track } from './Track'
 import { rockSet, tiled, photoSet } from './Textures'
+import { buildGates, seaRibs } from './biomes/Spectacle'
 
 /**
  * The underwater section as a real aquarium-style road tunnel:
@@ -82,6 +83,8 @@ export class UnderwaterWorld {
     this.life = new SeaLife(spots, clearOf)
     this.group.add(this.life.group)
     this.buildShafts(idx, right)
+    buildGates(track, this.group, ['underwater'], 55, () => false, 12.2)
+    seaRibs(track, this.group, idx[Math.floor(idx.length * 0.72)]!)
     this.buildSurface(waterRects)
     // Marine snow: tiny particles drifting around the camera
     const COUNT = 900

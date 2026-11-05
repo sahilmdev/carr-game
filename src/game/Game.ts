@@ -23,6 +23,9 @@ import { BlendedMood } from './biomes/Moods'
 import { props } from './biomes/Props'
 import { Ghost } from './Ghost'
 import { CarFx } from './CarFx'
+import { Warp } from './Warp'
+import { Trophy } from './biomes/Finish'
+import { Flourish } from './Flourish'
 import type { SfxName, LoopName } from './Sfx'
 
 const BASE = import.meta.env.BASE_URL
@@ -81,6 +84,8 @@ export interface GameUI {
   /** Nitro tank 0–1 and whether it is firing. */
   setNitro(level: number, active: boolean): void
   onFinish(result: RaceResult): void
+  /** The finish sequence reached the trophy: show the results panel. */
+  showResults(): void
   /** Photo mode toggled (hide/show the HUD). */
   onPhotoMode(active: boolean): void
   /** Short event message (speed trap, drift score…). */
@@ -97,12 +102,12 @@ const AREA_FLASH: Partial<Record<string, number>> = {
 
 /** Area cards shown when the race enters each part of the lap. */
 const AREAS: Partial<Record<string, [string, string]>> = {
-  town: ['HORIZON TOWN', 'Start / finish'],
+  town: ['COSMOS BAY', 'Start / finish'],
   causeway: ['OCEAN CAUSEWAY', 'Over the bay'],
   underwater: ['UNDERWATER TUNNEL', 'Double loop ahead'],
   space: ['LUNAR PLATEAU', 'Low gravity · boost pads'],
   canyon: ['RED ROCK CANYON', 'Rockslides, then pick your lane'],
-  volcano: ['VOLCANO', 'Dodge the lava bombs'],
+  volcano: ['VOLCANO', 'Erupting · outrun the lava'],
   desert: ['DUNE SEA', 'Sandstorm ahead'],
   saltflat: ['SALT FLATS', 'Speed trap · flat out'],
   snow: ['ALPINE PASS', 'Ice on the lake'],
@@ -125,6 +130,12 @@ export interface RaceResult {
 /** Lap-time targets for the medals (ms). */
 const MEDALS: [NonNullable<RaceResult['medal']>, number][] = [['GOLD', 137000], ['SILVER', 150000], ['BRONZE', 167000]]
 const SPLIT_KEY = 'horizon-drive-split-'
+/** Replay buffer: 30 frames a second for 7 seconds. */
+const REPLAY_N = 210
+const REPLAY_HZ = 30
+/** Finish sequence: slow-motion crossing, trackside replay, then the trophy. */
+const FIN_SLOW = 1.5
+const FIN_TROPHY = 6.6
 
 const BEST_KEY = 'horizon-drive-best-ms'
 const BEST_LAP_KEY = 'horizon-drive-best-lap-ms'
@@ -199,7 +210,7 @@ export class Game {
 
   // Flight autopilot (ramp jumps into/out of the space biome).
   // `idx` is a fractional sample index advanced at `speed` along the arc.
-  private flight: { idx: number; speed: number } | null = null
+  private flight: { idx: number; speed: number; off: number; rings: number } | null = null
   /** Riding the vertical loop (scripted: the car follows the loop deck). */
   private loopRide: { idx: number; speed: number; yaw: number; pitch: number; loop: number; roll: number } | null = null
 
@@ -224,6 +235,24 @@ export class Game {
   private baseHeadlights = 0
   readonly ghost: Ghost
   private readonly fx: CarFx
+  private readonly warp = new Warp()
+  private readonly trophy = new Trophy()
+  private trophyT = -1
+  private lastToast = ''
+  private lastToastAt = 0
+  private flourish!: Flourish
+  private roadWet = 0
+  /** Throttle pressed this long before GO, or -1. */
+  private revAt = -1
+  /** Last seconds of driving, replayed trackside at the finish. */
+  private readonly replay = new Float32Array(REPLAY_N * 5)
+  private replayHead = 0
+  private replayCount = 0
+  private replayAcc = 0
+  private replayT = 0
+  private readonly replayCam = new THREE.Vector3()
+  private resultsShown = false
+  private finishMedal: string | null = null
   private modelProgress = 0
   /** True once every model and prop has loaded and the shaders are built. */
   loaded = false
@@ -247,8 +276,15 @@ export class Game {
       this.shake.addTrauma(0.25 + 0.4 * s)
       this.car.bump(0.6 + s)
       this.audio.playCollision()
+      this.effects.crash(this.car, s > 0.5 ? 2 : 0.8)
     },
-    toast: (text: string, kind?: 'info' | 'best') => { if (this.phase === 'racing') this.ui.toast(text, kind) },
+    toast: (text: string, kind?: 'info' | 'best') => {
+      // the same message twice in a row within 2 s is one message
+      if (this.phase !== 'racing' || (text === this.lastToast && this.raceTime - this.lastToastAt < 2000)) return
+      this.lastToast = text
+      this.lastToastAt = this.raceTime
+      this.ui.toast(text, kind)
+    },
     draft: (on: boolean) => { this.drafting = on },
     danger: (label: string | null, level: number, color: string, soft?: boolean) => { this.ui.setDanger(label, level, color, soft) },
     nitro: (a: number) => { this.car.nitro = Math.min(1, this.car.nitro + a) },
@@ -259,6 +295,12 @@ export class Game {
     },
     rumble: (a: number) => { if (this.phase === 'racing') this.shake.addTrauma(a) },
     refill: () => { this.car.nitro = 1 },
+    flash: (color: number, amount: number) => {
+      if (this.phase !== 'racing') return
+      this.flashColor.set(color)
+      this.flash = Math.max(this.flash, amount)
+    },
+    wreck: (text: string) => this.wreck(text),
     sfx: (name: SfxName, vol?: number, pitch?: number) => { if (this.phase === 'racing') this.audio.sfx(name, vol, pitch) },
     loop: (name: LoopName, level: number) => { this.audio.setLoop(name, level) },
   }
@@ -323,7 +365,9 @@ export class Game {
     }).then(() => { this.precompile(); this.loaded = true })
 
     this.fx = new CarFx()
-    this.gfx.scene.add(this.fx.group)
+    this.gfx.scene.add(this.fx.group, this.warp.mesh, this.trophy.group)
+    this.flourish = new Flourish(this.track, (i) => this.scenery.biomes.enclosed(i))
+    this.gfx.scene.add(this.flourish.group)
     this.ghost = new Ghost(this.track.sampleCount + ':' + Math.round(this.track.length))
     this.ghost.buildPace(this.track, 62)
     this.gfx.scene.add(this.ghost.mesh)
@@ -430,7 +474,9 @@ export class Game {
   private precompile(): void {
     // synchronous, so no frame is ever drawn with everything switched on
     const hidden: THREE.Object3D[] = []
-    this.scenery.group.traverse((o) => { if (!o.visible) { hidden.push(o); o.visible = true } })
+    const reveal = (o: THREE.Object3D) => { if (!o.visible) { hidden.push(o); o.visible = true } }
+    this.scenery.group.traverse(reveal)
+    this.flourish.group.traverse(reveal)
     const cam = this.gfx.camera
     const pos = cam.position.clone(), quat = cam.quaternion.clone(), far = cam.far, fov = cam.fov
     // particles only appear in their biomes: give them a weight for the frame
@@ -609,6 +655,13 @@ export class Game {
     this.checkpointsHit = new Array<boolean>(CHECKPOINT_COUNT).fill(false)
     this.lastArea = ''
     this.ghost.mesh.visible = false
+    this.trophy.hide()
+    this.trophyT = -1
+    this.revAt = -1
+    this.replayCount = 0
+    this.resultsShown = false
+    this.flourish.rearm()
+    this.scenery.biomes.stadium.rearm()
     this.ghost.startLap(this.car.mesh)
     this.wasOffTrack = false
     this.flight = null
@@ -647,8 +700,8 @@ export class Game {
         this.updateCountdown(dt)
         this.car.update(dt, this._emptyInput)
         this.followTrack(dt)
-        this.chaseCam.update(this.gfx.camera, this.car, dt)
-        this.audio.updateEngine(0.05)
+        this.updateCountdownCam()
+        this.audio.updateEngine(this.input.get().accelerate ? 0.55 : 0.05)
         break
 
       case 'racing':
@@ -656,15 +709,22 @@ export class Game {
         break
 
       case 'finished':
-        this.car.update(dt, this._emptyInput)
-        this.followTrack(dt)
-        this.chaseCam.update(this.gfx.camera, this.car, dt)
+        this.updateFinish(dt)
         this.audio.updateEngine(this.car.getNormalizedSpeed() * 0.4)
         this.post.setSpeed(0)
         break
     }
 
     this.updateAtmosphere(dt, time)
+    this.updateWarp(dt, time)
+    if (this.phase !== 'attract') {
+      const z = this.track.zoneOfSample(this.trackIndexHint)
+      this.flourish.update({ time, dt, idx: this.trackIndexHint, zone: z, carPos: this.car.position, sfx: this.biomeEvents.sfx }, this.flight !== null)
+      // salt that mirrors the sky, neon on wet streets
+      const wet = Math.max(this.sky.rain, z === 'saltflat' ? 0.9 : z === 'city' ? 0.7 : 0)
+      this.roadWet += (wet - this.roadWet) * (1 - Math.pow(0.05, dt))
+      this.track.setWetness(this.roadWet)
+    }
     {
       const i = this.trackIndexHint, biomes = this.scenery.biomes
       const zone = this.phase === 'attract' ? 'town' : this.gfx.camera.position.y < 0 ? 'underwater' : this.track.zoneOfSample(i)
@@ -695,7 +755,12 @@ export class Game {
   private followTrack(dt: number): void {
     const nearest = this.track.nearest(this.car.position, this.trackIndexHint)
     this.trackIndexHint = nearest.index
-    const targetY = nearest.point.y + this.hopY
+    // banked corners: the car sits on the tilted surface, wherever it is across it
+    const bank = this.track.bank[nearest.index]!
+    const tg = this.track.tangents[nearest.index]!
+    const across = ((this.car.position.x - nearest.point.x) * -tg.z + (this.car.position.z - nearest.point.z) * tg.x) / (Math.hypot(tg.x, tg.z) || 1)
+    const targetY = nearest.point.y + this.hopY + bank * THREE.MathUtils.clamp(across, -10.5, 10.5)
+    if (!this.hopSpin) this.car.mesh.rotation.z = THREE.MathUtils.lerp(this.car.mesh.rotation.z, Math.atan(bank), 0.2)
 
     // Vertical follow must be STIFF on slopes or the car clips through
     // ramps. On flat ground a gentler follow smooths over bumps; the
@@ -711,6 +776,20 @@ export class Game {
     // In a low-gravity hop the nose follows the arc a little
     this.car.setSlopePitch(Math.asin(THREE.MathUtils.clamp(tangent.y, -1, 1)) + (this.hopping ? this.hopV * 0.018 : 0))
     this.updateBlobShadow(nearest.point.y)
+  }
+
+  private warpLevel = 0
+  /** Light-speed on the way to the moon, burning re-entry on the way down. */
+  private updateWarp(dt: number, time: number): void {
+    const f = this.flight
+    const z = f ? this.track.zoneOfSample(this.trackIndexHint) : ''
+    const target = z === 'flight1' || z === 'flight2' ? 1 : 0
+    this.warpLevel += (target - this.warpLevel) * (1 - Math.pow(0.002, dt))
+    if (this.warpLevel > 0.3) this.chaseCam.kick(26 * this.warpLevel)
+    const cam = this.gfx.camera
+    cam.getWorldDirection(this._camFwd)
+    const down = z === 'flight2' || (!f && this.track.zoneOfSample(this.trackIndexHint) === 'canyon')
+    this.warp.update(time * 1.6, this.warpLevel, cam.position, this._camFwd, down ? 0xff6a1e : 0x5a2cff, down ? 0xffd26a : 0x38e8ff)
   }
 
   /** Lerp fog, sky, road and light rig between sunset / underwater / space. */
@@ -818,11 +897,63 @@ export class Game {
       this.countdownStep++
     }
 
+    const accel = this.input.get().accelerate
+    if (!accel) this.revAt = -1
+    else if (this.revAt < 0) this.revAt = this.countdownTimer
+
     if (this.countdownTimer >= stepDuration * 3) {
       this.phase = 'racing'
+      // Throttle caught in the last moment before GO: a perfect launch
+      const perfect = this.revAt >= stepDuration * 3 - 0.7
+      this.car.launch = perfect ? 7 : 4
+      if (perfect) {
+        this.car.setSpeed(30)
+        this.chaseCam.kick(14)
+        this.shake.addTrauma(0.3)
+        this.audio.playBoost()
+        this.ui.toast('PERFECT LAUNCH', 'best')
+      }
+      this.scenery.biomes.stadium.celebrate(2.5)
       setTimeout(() => this.ui.hideCountdown(), 700)
     }
   }
+
+  /** Sweep from the nose round to the chase position during the 3-2-1. */
+  private updateCountdownCam(): void {
+    const u = THREE.MathUtils.clamp(this.countdownTimer / 2.5, 0, 1)
+    const e = u * u * (3 - 2 * u)
+    const cam = this.gfx.camera, p = this.car.position, a = this.car.heading + (1 - e) * 2.7
+    const r = THREE.MathUtils.lerp(6.2, 7.8, e)
+    cam.position.set(p.x + Math.sin(a) * r, p.y + THREE.MathUtils.lerp(0.9, 3.1, e), p.z + Math.cos(a) * r)
+    const f = this.car.getForwardDir(this._pv)
+    cam.lookAt(p.x + f.x * 8 * e, p.y + THREE.MathUtils.lerp(0.8, 2.1, e), p.z + f.z * 8 * e)
+    if (cam.fov !== 60) { cam.fov = 60; cam.updateProjectionMatrix() }
+  }
+
+  /** Engine destroyed: stop dead on the road, pay the time, drive on. */
+  private wreck(text: string): void {
+    if (this.phase !== 'racing' || this.flight || this.loopRide) return
+    this.clearHop()
+    this.effects.crash(this.car, 5)
+    const near = this.track.nearest(this.car.position, this.trackIndexHint)
+    const t = this.track.tangents[near.index]!
+    this.car.setPose(near.point, Math.atan2(-t.x, -t.z))
+    this.car.setSpeed(0)
+    this.car.launch = 3
+    this.raceTime += 4000
+    this.flashColor.set(0xff7a2a)
+    this.flash = 1
+    this.shake.addTrauma(0.8)
+    this.audio.sfx('meltdown')
+    this.ui.toast(text)
+  }
+
+  /** Dust colour for the ground the car lands on. */
+  private groundColor(): THREE.Color {
+    const z = this.track.zoneOfSample(this.trackIndexHint)
+    return this._dust.set(z === 'snow' ? 0xeef4fb : z === 'desert' ? 0xd8ab6e : z === 'saltflat' ? 0xf1ece2 : z === 'canyon' ? 0xb0683f : z === 'volcano' ? 0x3a3432 : z === 'space' ? 0x9b9b9f : 0x8c8378)
+  }
+  private readonly _dust = new THREE.Color()
 
   // ── Racing (with flight autopilot for the ramp jumps) ────────────────
 
@@ -846,6 +977,7 @@ export class Game {
         const surf = this.hopping ? null : this.scenery.biomes.surface(this.trackIndexHint)
         this.car.surfaceSlip = surf?.slip ?? 0
         this.car.surfaceDrag = surf?.drag ?? 0
+        this.car.topBonus = zone === 'saltflat' ? 1.14 : 1
         this.car.update(dt, input)
         this.followTrack(dt)
         this.handleTrackBoundary()
@@ -862,11 +994,12 @@ export class Game {
 
     this.handleProgress(prevIdx)
 
+    this.recordReplay(dt)
     this.raceTime += dt * 1000
     this.ghost.record(this.raceTime - this.lapStart, this.car.mesh)
     this.ghost.update(this.raceTime - this.lapStart, true)
     this.ui.setTime(formatTime(this.raceTime))
-    this.ui.setMph(Math.round(this.loopRide ? this.loopRide.speed * 2.237 : this.flight ? this.flight.speed * 2.237 : this.car.getSpeedMph()))
+    this.ui.setMph(Math.round(this.loopRide ? this.loopRide.speed * 2.237 : this.flight ? this.flight.speed * 2.237 + this.warpLevel * 700 : this.car.getSpeedMph()))
 
     if (this.loopRide && this.loopRide.loop >= 0) this.updateLoopCamera(dt)
     else this.chaseCam.update(this.gfx.camera, this.car, dt)
@@ -886,8 +1019,107 @@ export class Game {
     if (boost && !this.wasBoosting) { this.audio.playBoost(); this.shake.addTrauma(0.18) }
     this.wasBoosting = boost
     this.ui.setNitro(this.car.nitro, boost)
-    this.post.setSpeed(this.loopRide ? 0.15 : this.flight ? 0.9 : Math.min(1, this.car.getNormalizedSpeed()) + (boost ? 0.45 : 0))
+    const salt = this.track.zoneOfSample(this.trackIndexHint) === 'saltflat' ? 0.3 : 0
+    this.post.setSpeed(this.loopRide ? 0.15 : this.flight ? 0.9 : Math.min(1, this.car.getNormalizedSpeed()) + (boost ? 0.45 : 0) + salt)
     this.minimap.update(this.car.position)
+  }
+
+  private recordReplay(dt: number): void {
+    this.replayAcc += dt
+    if (this.replayAcc < 1 / REPLAY_HZ) return
+    this.replayAcc -= 1 / REPLAY_HZ
+    const o = this.replayHead * 5, m = this.car.mesh
+    this.replay.set([m.position.x, m.position.y, m.position.z, m.rotation.y, m.rotation.x], o)
+    this.replayHead = (this.replayHead + 1) % REPLAY_N
+    this.replayCount = Math.min(REPLAY_N, this.replayCount + 1)
+  }
+
+  /**
+   * The ending, in three shots: the crossing in slow motion from low at the
+   * side of the car, a trackside replay of the run through the bowl, then the
+   * trophy rising in front of the parked car.
+   */
+  private updateFinish(dt: number): void {
+    this.trophyT += dt
+    const t = this.trophyT, cam = this.gfx.camera
+    if (t < FIN_SLOW) {
+      const slow = dt * 0.3
+      this.car.update(slow, this._emptyInput)
+      this.followTrack(slow)
+      const f = this.car.getForwardDir(this._pv), p = this.car.position
+      const u = t / FIN_SLOW
+      cam.position.set(p.x + f.x * (6 - 9 * u) - f.z * 5.2, p.y + 0.8, p.z + f.z * (6 - 9 * u) + f.x * 5.2)
+      cam.lookAt(p.x, p.y + 0.9, p.z)
+      if (cam.fov !== 50) { cam.fov = 50; cam.updateProjectionMatrix() }
+      return
+    }
+    if (t < FIN_TROPHY && this.replayCount > 40) {
+      this.updateReplayShot(t - FIN_SLOW)
+      return
+    }
+    this.updateTrophyShot(dt)
+  }
+
+  private updateReplayShot(t: number): void {
+    const cam = this.gfx.camera
+    // last 3 seconds of the run at 60% speed, watched from the barrier by the line
+    const frames = Math.min(this.replayCount - 1, REPLAY_HZ * 3)
+    const u = Math.min(1, t / (FIN_TROPHY - FIN_SLOW))
+    const fi = u * frames, f0 = Math.floor(fi), fr = fi - f0
+    const slot = (k: number) => ((this.replayHead - 1 - frames + k + REPLAY_N * 2) % REPLAY_N) * 5
+    const a = slot(f0), b = slot(Math.min(frames, f0 + 1)), R = this.replay
+    this._flightPos.set(R[a]! + (R[b]! - R[a]!) * fr, R[a + 1]! + (R[b + 1]! - R[a + 1]!) * fr, R[a + 2]! + (R[b + 2]! - R[a + 2]!) * fr)
+    this.car.setPose(this._flightPos, R[a + 3]!)
+    this.car.mesh.rotation.x = R[a + 4]!
+    this.car.spinWheels(0.5)
+    this.updateBlobShadow(this._flightPos.y - 0.02)
+    if (t < 0.05) {
+      this.flashColor.set(0xffffff)
+      this.flash = 0.6
+      const n = this.track.sampleCount, k = n - 26, p = this.track.samples[k]!, tg = this.track.tangents[k]!
+      this.replayCam.set(p.x - tg.z * 9.4, p.y + 1.5, p.z + tg.x * 9.4)
+      cam.fov = 34
+      cam.updateProjectionMatrix()
+    }
+    cam.position.copy(this.replayCam)
+    cam.lookAt(this._flightPos.x, this._flightPos.y + 0.8, this._flightPos.z)
+  }
+
+  private updateTrophyShot(dt: number): void {
+    const cam = this.gfx.camera
+    const t = this.trophy.group
+    if (!t.visible) {
+      // park on the far side of the line, trophy just ahead of the nose
+      const k = 34, p = this.track.samples[k]!, tg = this.track.tangents[k]!
+      this.trackIndexHint = k
+      this.car.setPose(p, Math.atan2(-tg.x, -tg.z))
+      this.car.setSpeed(0)
+      this.car.mesh.rotation.x = 0
+      this.car.mesh.rotation.z = 0
+      this.updateBlobShadow(p.y)
+      const f = this._pv.set(-Math.sin(this.car.heading), 0, -Math.cos(this.car.heading))
+      this.trophy.show(this.car.position.clone().addScaledVector(f, 13), this.finishMedal)
+      this.flashColor.set(0xffffff)
+      this.flash = 1
+      this.scenery.biomes.stadium.celebrate(14)
+      this.audio.sfx('cheer')
+      this.replayT = 0
+    }
+    this.replayT += dt
+    if (!this.resultsShown && this.replayT > 1.4) { this.resultsShown = true; this.ui.showResults() }
+    this.trophy.update(dt)
+    const a = this.car.heading + 0.5 + Math.sin(this.replayT * 0.22) * 0.45
+    const h = this.trophy['home'] as THREE.Vector3
+    cam.position.set(h.x + Math.sin(a) * 9.5, h.y + 3.1, h.z + Math.cos(a) * 9.5)
+    // aim right of the cup so it sits left of the results panel
+    this._pv.set(Math.cos(a), 0, -Math.sin(a))
+    cam.lookAt(h.x + this._pv.x * 2.4, h.y + 3, h.z + this._pv.z * 2.4)
+    if (cam.fov !== 42) { cam.fov = 42; cam.updateProjectionMatrix() }
+  }
+
+  /** Any key or click during the finish film jumps to the trophy. */
+  skipFinish(): void {
+    if (this.phase === 'finished' && this.trophyT < FIN_TROPHY) this.trophyT = FIN_TROPHY
   }
 
   /** Take over: the car flies the authored arc along the flight samples. */
@@ -899,12 +1131,24 @@ export class Game {
 
   private startFlight(): void {
     this.clearHop()
+    const i = this.trackIndexHint, p0 = this.track.samples[i]!, tg0 = this.track.tangents[i]!
+    const rl = Math.hypot(tg0.x, tg0.z) || 1
+    const off = ((this.car.position.x - p0.x) * -tg0.z + (this.car.position.z - p0.z) * tg0.x) / rl
     this.flight = {
-      idx: this.trackIndexHint,
+      idx: i,
       speed: THREE.MathUtils.clamp(Math.abs(this.car.getSpeed()), 36, 58),
+      off: THREE.MathUtils.clamp(off, -8, 8),
+      rings: 0,
     }
     this.shake.addTrauma(0.35)
-    this.audio.playGoBeep()
+    const zone = this.track.zoneOfSample(i)
+    if (zone === 'flight1' || zone === 'flight2') {
+      this.audio.playGoBeep()
+      this.audio.sfx('rocketLaunch')
+    } else {
+      this.audio.sfx('gust')
+      this.chaseCam.kick(10)
+    }
     this.blobShadow.visible = false
   }
 
@@ -967,6 +1211,7 @@ export class Game {
         this.shake.addTrauma(0.35)
         this.car.bump(0.8)
         this.audio.playCollision()
+        this.effects.landing(this.car, Math.min(1, 0.45 + this.hopPeak / 12), this.groundColor())
         if (this.hopSpin) {
           // stick the landing: a speed kick and a score
           this.car.setSpeed(Math.max(Math.abs(this.car.getSpeed()), this.car.topSpeed * 1.2))
@@ -1162,6 +1407,23 @@ export class Game {
     const tangent = this.track.tangents[i0]!
     const heading = Math.atan2(-tangent.x, -tangent.z)
 
+    // steer in the air, through the rings
+    const input = this.input.get()
+    f.off += ((input.right ? 1 : 0) - (input.left ? 1 : 0)) * 13 * dt
+    f.off = THREE.MathUtils.clamp(f.off, -8, 8)
+    const rl = Math.hypot(tangent.x, tangent.z) || 1
+    this._flightPos.x += (-tangent.z / rl) * f.off
+    this._flightPos.z += (tangent.x / rl) * f.off
+    const got = this.flourish.collectRings(this.trackIndexHint, i0, f.off)
+    if (got) {
+      f.rings += got
+      f.speed = Math.min(72, f.speed + 3.5 * got)
+      this.car.nitro = Math.min(1, this.car.nitro + 0.3 * got)
+      this.audio.sfx('ring', 1, f.rings * 2)
+      this.chaseCam.kick(6)
+      this.ui.toast(`RING  +NITRO`, 'best')
+    }
+
     this.car.setPose(this._flightPos, heading)
     this.car.setSlopePitch(Math.asin(THREE.MathUtils.clamp(tangent.y, -1, 1)), 0.25)
     this.car.spinWheels(f.speed * dt)
@@ -1170,10 +1432,12 @@ export class Game {
     // Landed? The sample under us is no longer a flight-gap sample.
     if (!FLIGHT_ZONES.has(this.track.zoneOfSample(i0))) {
       const landIdx = i0
-      const p = this.track.samples[landIdx]!
       const t = this.track.tangents[landIdx]!
-      this.car.setPose(p, Math.atan2(-t.x, -t.z))
+      const p = this.track.samples[landIdx]!
+      const tl = Math.hypot(t.x, t.z) || 1
+      this.car.setPose(this._flightPos.set(p.x - (t.z / tl) * f.off, p.y, p.z + (t.x / tl) * f.off), Math.atan2(-t.x, -t.z))
       this.car.setSpeed(f.speed)
+      this.effects.landing(this.car, 1, this.groundColor())
       this.trackIndexHint = landIdx
       this.flight = null
       this.shake.addTrauma(0.4)
@@ -1211,6 +1475,12 @@ export class Game {
         this.car.scrubSpeed(0.95)
       }
 
+      // grinding the barrier throws sparks from that side of the car
+      const sp = Math.abs(this.car.getSpeed())
+      if (sp > 6) {
+        this._pv.copy(this.car.position).addScaledVector(this._lateral, 1).setY(this.car.position.y + 0.5)
+        this.effects.sparks(this._pv, this.car.getForwardDir(this._flightPos).multiplyScalar(-sp * 0.35), this.wasOffTrack ? 2 : 22)
+      }
       if (!this.wasOffTrack) {
         // a scrape costs some speed, not the whole run
         this.car.scrubSpeed(0.87)
@@ -1257,6 +1527,8 @@ export class Game {
         // Next lap: re-arm the checkpoints, announce the split
         this.lapStart = this.raceTime
         this.checkpointsHit.fill(false)
+        this.flourish.rearm()
+        this.scenery.biomes.stadium.rearm()
         const bestSoFar = Math.min(...this.lapTimes.slice(0, -1), readMs(BEST_LAP_KEY))
         this.ui.onLap(this.lapTimes.length, lapMs, lapMs < bestSoFar)
         this.ui.setLap(this.lapTimes.length + 1, this.lapCount)
@@ -1288,6 +1560,12 @@ export class Game {
     }
     this.ghost.mesh.visible = false
     const medal = MEDALS.find(([, ms]) => fastest <= ms)?.[0] ?? null
+    this.finishMedal = medal
+    this.trophyT = 0
+    const stadium = this.scenery.biomes.stadium
+    stadium.setScreen(formatTime(timeMs), medal ? `${medal} MEDAL` : isNewBest ? 'NEW BEST' : 'FINISHED', medal === 'GOLD' ? '#ffcf4a' : '#25d9ff')
+    stadium.celebrate(7)
+    this.audio.sfx('cheer')
     this.ui.onFinish({
       medal,
       totalMs: timeMs,

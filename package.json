@@ -1,11 +1,11 @@
 {
-  "name": "horizon-drive",
+  "name": "nitro-cosmos",
   "private": true,
   "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "tsc && vite build && node scripts/prune-dist.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

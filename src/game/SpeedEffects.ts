@@ -19,6 +19,9 @@ export class SpeedEffects {
   private smokeAcc = 0
   private dustAcc = 0
   private sprayAcc = 0
+  private fxAcc = 0
+  private chirp = 0
+  private smoking = 0
   /** 0 dry … 1 soaked: wet roads throw a mist of spray off the rear tyres. */
   public wetness = 0
   private readonly spray = new THREE.Color()
@@ -26,7 +29,7 @@ export class SpeedEffects {
   public readonly smokeColor = new THREE.Color(0xd6d6d2)
 
   constructor(scene: THREE.Scene) {
-    this.particles = new ParticleSystem(260)
+    this.particles = new ParticleSystem(460)
     scene.add(this.particles.points)
     this.skids = new SkidMarks(420)
     scene.add(this.skids.mesh)
@@ -51,7 +54,7 @@ export class SpeedEffects {
         .addScaledVector(this._fwd, -1.45)
         .addScaledVector(this._right, side * 0.85)
       this._wheel.y = roadY
-      this.skids.track(side > 0 ? 1 : 0, this._wheel, this._right, grip > 0.25 && speed > 5)
+      this.skids.track(side > 0 ? 1 : 0, this._wheel, this._right, (grip > 0.25 || this.chirp > 0) && speed > 5)
     }
 
     // Tyre smoke
@@ -91,15 +94,70 @@ export class SpeedEffects {
       this.particles.emit(this._wheel, this._vel, 2 + Math.random() * 1.5, 0.45, 2.2 + Math.random(), DUST)
     }
 
+    this.chirp = Math.max(0, this.chirp - dt)
+    // a damaged car trails smoke for a while
+    if (this.smoking > 0) {
+      this.smoking -= dt
+      this.fxAcc += dt * 26
+      while (this.fxAcc > 1) {
+        this.fxAcc -= 1
+        this._vel.set((Math.random() - 0.5) * 2, 2.5 + Math.random() * 2, (Math.random() - 0.5) * 2)
+        this._wheel.copy(car.position).addScaledVector(this._fwd, 1.5).setY(car.position.y + 0.9)
+        this.particles.emit(this._wheel, this._vel, 1.1, 0.5, 1.5, SOOT)
+      }
+    }
     this.particles.update(dt)
     this.skids.update(dt)
   }
 
+  /** Sparks off a wall: at the side of the car nearest the barrier. */
+  sparks(at: THREE.Vector3, dir: THREE.Vector3, count: number): void {
+    for (let k = 0; k < count; k++) {
+      this._vel.copy(dir).multiplyScalar(0.5 + Math.random() * 0.7)
+      this._vel.x += (Math.random() - 0.5) * 16
+      this._vel.y = 2 + Math.random() * 9
+      this._vel.z += (Math.random() - 0.5) * 16
+      this.particles.emit(at, this._vel, 0.11 + Math.random() * 0.1, 1, 0.22 + Math.random() * 0.3, Math.random() < 0.5 ? SPARK : SPARK2)
+    }
+  }
+
+  /** Touch-down: a ring of dust, sparks off the floor and a chirp of rubber. */
+  landing(car: Car, strength: number, ground: THREE.Color): void {
+    const p = car.position
+    const count = Math.round(10 + strength * 16)
+    for (let k = 0; k < count; k++) {
+      const a = (k / count) * Math.PI * 2
+      this._vel.set(Math.cos(a) * 10 * strength, 0.8 + Math.random() * 1.6, Math.sin(a) * 10 * strength)
+      this._wheel.set(p.x + Math.cos(a) * 1.4, p.y + 0.25, p.z + Math.sin(a) * 2)
+      this.particles.emit(this._wheel, this._vel, 1 + Math.random() * 0.8, 0.5, 0.9 + Math.random() * 0.5, ground)
+    }
+    car.getForwardDir(this._fwd)
+    this.sparks(this._wheel.copy(p).setY(p.y + 0.15), this._vel.copy(this._fwd).multiplyScalar(-14), Math.round(8 + strength * 14))
+    this.chirp = 0.25
+  }
+
+  /** A big hit: a fireball of sparks and soot, and the car smokes afterwards. */
+  crash(car: Car, smokeFor: number): void {
+    const p = car.position
+    this.sparks(this._wheel.copy(p).setY(p.y + 0.8), this._vel.set(0, 0, 0), 40)
+    for (let k = 0; k < 18; k++) {
+      this._vel.set((Math.random() - 0.5) * 12, 3 + Math.random() * 7, (Math.random() - 0.5) * 12)
+      this.particles.emit(this._wheel.copy(p).setY(p.y + 1), this._vel, 1.8 + Math.random() * 1.6, 0.7, 1.6, k % 3 ? SOOT : FIRE)
+    }
+    this.smoking = Math.max(this.smoking, smokeFor)
+  }
+
   clear(): void {
+    this.smoking = 0
     this.particles.clear()
     this.skids.clear()
   }
 }
+
+const SPARK = new THREE.Color(5, 2.6, 0.8)
+const SPARK2 = new THREE.Color(4, 3.4, 2)
+const SOOT = new THREE.Color(0.09, 0.08, 0.08)
+const FIRE = new THREE.Color(3.2, 1.1, 0.25)
 
 const DUST = new THREE.Color(0xa08a6a)
 

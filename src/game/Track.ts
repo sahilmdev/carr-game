@@ -40,6 +40,8 @@ export class Track {
 
   /** Road "up" per sample: straight up, except round the vertical loop. */
   public readonly ups: THREE.Vector3[]
+  /** Road tilt per sample: height gained per metre to the right. */
+  public readonly bank: number[]
 
   constructor() {
     this.group = new THREE.Group()
@@ -91,6 +93,31 @@ export class Track {
       // Run-in / run-out near the ground: blend toward straight up
       const k = THREE.MathUtils.clamp((p.y - base - 0.2) / 2, 0, 1)
       return nrm.normalize().lerp(new THREE.Vector3(0, 1, 0), 1 - k).normalize()
+    })
+
+    // Corners lean into the bend on the moon and the sky highway. The slope is
+    // eased to zero at area edges and round the moon's jump ramps.
+    const raw = this.samples.map((_, i) => {
+      const z = this.zones[i]
+      if (z !== 'space' && z !== 'sky') return 0
+      const a = this.tangents[(i - 14 + n) % n]!, b = this.tangents[(i + 14) % n]!
+      return THREE.MathUtils.clamp((a.x * b.z - a.z * b.x) * 0.55, -0.17, 0.17)
+    })
+    const spaceIdx = this.samples.map((_, i) => i).filter((i) => this.zones[i] === 'space')
+    for (const f of [0.1, 0.4, 0.7]) {
+      const c = Math.floor(spaceIdx.length * f)
+      for (let k = c - 30; k < c + 30; k++) { const i = spaceIdx[k]; if (i !== undefined) raw[i] = 0 }
+    }
+    const BW = 30
+    this.bank = raw.map((_, i) => {
+      let s = 0
+      for (let o = -BW; o <= BW; o++) s += raw[(i + o + n) % n]!
+      return s / (2 * BW + 1)
+    })
+    this.samples.forEach((_, i) => {
+      if (this.zones[i] !== 'space' && this.zones[i] !== 'sky') { this.bank[i] = 0; return }
+      const t = this.tangents[i]!, r = new THREE.Vector3().crossVectors(t, new THREE.Vector3(0, 1, 0)).normalize()
+      this.ups[i] = new THREE.Vector3(0, 1, 0).addScaledVector(r, -this.bank[i]!).normalize()
     })
 
     let len = 0
@@ -188,9 +215,9 @@ export class Track {
   private surfaceTints(): { tint: [number, number, number, number][]; wet: number[] } {
     const TINTS: Partial<Record<ZoneName, [number, number, number, number]>> = {
       volcano: [0.16, 0.15, 0.14, 0.55],
-      desert: [0.8, 0.64, 0.43, 0.6],
-      saltflat: [0.92, 0.91, 0.88, 0.5],
-      snow: [0.93, 0.95, 0.99, 0.75],
+      desert: [0.8, 0.6, 0.38, 0.32],
+      saltflat: [0.9, 0.9, 0.88, 0.25],
+      snow: [0.82, 0.88, 0.98, 0.34],
       jungle: [0.27, 0.21, 0.13, 0.45],
     }
     const n = this.samples.length
@@ -280,7 +307,7 @@ export class Track {
             float along = vRoadUv.y * 8.0; // metres
             // Large-scale patching variation (breaks up visible tiling)
             float macro = texture2D(map, vRoadUv * vec2(0.37, 0.045)).r;
-            diffuseColor.rgb *= 0.7 + macro * 1.4;
+            diffuseColor.rgb *= (0.7 + macro * 1.4) * 0.42; // dark road, so the edge lights read
             // Slightly darker, polished tyre tracks in each lane
             float lanePos = fract(across * 4.0);
             float tyre = smoothstep(0.08, 0.0, abs(lanePos - 0.3)) + smoothstep(0.08, 0.0, abs(lanePos - 0.7));
@@ -393,7 +420,8 @@ export class Track {
 
         const left = p.clone().addScaledVector(right, -half)
         const rightPt = p.clone().addScaledVector(right, half)
-        positions.push(left.x, p.y + 0.02, left.z, rightPt.x, p.y + 0.02, rightPt.z)
+        const lift = this.bank[idx]! * half
+        positions.push(left.x, p.y + 0.02 - lift, left.z, rightPt.x, p.y + 0.02 + lift, rightPt.z)
 
         if (k > 0) accumulated += p.distanceTo(this.samples[run[k - 1]!]!)
         const v = accumulated / 8
@@ -761,7 +789,7 @@ export class Track {
     this.buildAccents()
     const up = new THREE.Vector3(0, 1, 0)
     const LINE_OFFSET = this.width * 0.46
-    const LINE_WIDTH = 0.38
+    const LINE_WIDTH = 0.6
 
     const materials = [
       // Glowing light strips, in each area's own colour
@@ -799,9 +827,10 @@ export class Track {
             const lineCenter = p.clone().addScaledVector(right, side * LINE_OFFSET)
             const inner = lineCenter.clone().addScaledVector(right, -LINE_WIDTH / 2)
             const outer = lineCenter.clone().addScaledVector(right, LINE_WIDTH / 2)
-            positions.push(inner.x, p.y + 0.07, inner.z, outer.x, p.y + 0.07, outer.z)
+            const by = this.bank[idx]! * side * LINE_OFFSET
+            positions.push(inner.x, p.y + by + 0.07, inner.z, outer.x, p.y + by + 0.07, outer.z)
             const ac = this.accents[idx]!
-            colors.push(ac.r * 1.4, ac.g * 1.4, ac.b * 1.4, ac.r * 1.4, ac.g * 1.4, ac.b * 1.4)
+            colors.push(ac.r * 2, ac.g * 2, ac.b * 2, ac.r * 2, ac.g * 2, ac.b * 2)
             if (k < endK) {
               indices.push(vi, vi + 1, vi + 2, vi + 1, vi + 3, vi + 2)
             }

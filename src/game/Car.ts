@@ -26,7 +26,7 @@ export const CAR_CONFIG: CarConfig = {
 }
 
 /** Body color of the player car. Metallic paint under a glossy clear coat. */
-const CAR_PAINT_COLOR = 0x8c0d12
+const CAR_PAINT_COLOR = 0xe0142a
 
 /** Two-layer automotive paint: metallic base + glossy clear coat that mirrors the sky. */
 function createCarPaint(): THREE.MeshPhysicalMaterial {
@@ -357,6 +357,14 @@ export class Car {
   /** Road surface: extra sideways slip 0–1 (ice, mud) and drag in m/s². */
   surfaceSlip = 0
   surfaceDrag = 0
+  /** Top speed multiplier for the area (tailwind on the salt). */
+  topBonus = 1
+  /** Seconds of extra launch acceleration left. */
+  launch = 0
+  /** True during a powerslide (brake + steer at speed). */
+  drifting = false
+  /** Steering after the tyres have taken up the input (-1..1). */
+  private steerIn = 0
 
   update(dt: number, input: InputState): void {
     const cfg = this.config
@@ -368,16 +376,21 @@ export class Car {
     this.boosting = !!input.nitro && this.nitro > 0.01 && !input.brake && this.speed > 3
     if (this.boosting) this.nitro = Math.max(0, this.nitro - dt / 4)
     else this.nitro = Math.min(1, this.nitro + dt / 16)
-    const topSpeed = cfg.maxSpeed * (this.boosting ? 1.25 : 1)
+    const topSpeed = cfg.maxSpeed * (this.boosting ? 1.25 : 1) * this.topBonus
+    this.launch = Math.max(0, this.launch - dt)
+    const steerRaw = (input.left ? 1 : 0) - (input.right ? 1 : 0)
+    // brake + steer at speed: a powerslide that scrubs little speed and earns nitro
+    this.drifting = input.brake && steerRaw !== 0 && this.speed > 26
+    if (this.drifting) this.nitro = Math.min(1, this.nitro + dt * 0.1)
 
     // 1. Longitudinal — forward only, no reverse. Brake decelerates to 0.
     if (input.accelerate || this.boosting) {
       // Throttle only pushes up to the current top speed (never past it)
       if (this.speed < topSpeed) {
-        this.speed = Math.min(topSpeed, this.speed + (cfg.acceleration + (this.boosting ? 22 : 0)) * dt)
+        this.speed = Math.min(topSpeed, this.speed + (cfg.acceleration + (this.boosting ? 22 : 0) + (this.launch > 0 ? 16 : 0)) * dt)
       }
     } else if (input.brake) {
-      this.speed -= cfg.braking * dt
+      this.speed -= (this.drifting ? 9 : cfg.braking) * dt
     } else {
       this.speed *= Math.pow(1 - cfg.friction, dt * 60)
     }
@@ -398,14 +411,15 @@ export class Car {
     const absSpeed = Math.abs(this.speed)
     const speedRatio = absSpeed / cfg.maxSpeed
     const effectiveTurnSpeed = cfg.turnSpeed * Math.min(speedRatio * 2, 1)
-    if (input.left) this.heading += effectiveTurnSpeed * dt * Math.sign(this.speed)
-    if (input.right) this.heading -= effectiveTurnSpeed * dt * Math.sign(this.speed)
+    // keys are on/off: ease in over a few frames so the nose doesn't snap
+    this.steerIn += (steerRaw - this.steerIn) * (1 - Math.exp(-dt * 14))
+    this.heading += effectiveTurnSpeed * (this.drifting ? 1.3 : 1) * this.steerIn * dt * Math.sign(this.speed)
 
     // 3. Drift — velocity lags behind heading
     this._forwardDir.set(-Math.sin(this.heading), 0, -Math.cos(this.heading))
     this._idealVelocity.copy(this._forwardDir).multiplyScalar(this.speed)
     const lateralRetention = cfg.driftFactor * (1 - speedRatio * cfg.downforce)
-    const clampedRetention = THREE.MathUtils.clamp(THREE.MathUtils.lerp(lateralRetention, 0.955, this.surfaceSlip), 0, 0.98)
+    const clampedRetention = THREE.MathUtils.clamp(THREE.MathUtils.lerp(lateralRetention, 0.955, Math.max(this.surfaceSlip, this.drifting ? 0.72 : 0)), 0, 0.98)
     this.velocity.lerp(this._idealVelocity, 1 - clampedRetention)
 
     // 4. Apply velocity (horizontal; elevation is set by the track follow)
@@ -728,6 +742,8 @@ export class Car {
         for (const m of ms) {
           if (!(m instanceof THREE.MeshStandardMaterial)) continue
           m.envMapIntensity = 1
+          // the HQ model's body shell ships near-black: give it a colour that reads on a dark road
+          if (m.name === 'Material.007') { m.color.set(CAR_PAINT_COLOR); m.metalness = 0.45; m.roughness = 0.3 }
           // "Transmission" glass makes three.js render the whole scene a
           // second time every frame (~23 ms on a laptop GPU). Plain
           // transparency looks the same on small lamp lenses and windows.
@@ -911,6 +927,9 @@ export class Car {
     this.slip = 0
     this.load = 0
     this.nitro = 1
+    this.launch = 0
+    this.steerIn = 0
+    this.drifting = false
     this.boosting = false
     this.flame.visible = false
     this.braking = false

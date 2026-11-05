@@ -381,7 +381,7 @@ export class Snow implements Biome {
     this.terrain = ctx.terrain
     const n = this.idx.length
     const mk = (a: number, b: number, end: string) => new Chase(this.track, this.idx.slice(Math.floor(n * a), Math.floor(n * b)), {
-      label: 'AVALANCHE', loop: 'avalanche', startSfx: 'whumpf', caughtSfx: 'whumpf', color: '#bfe6ff', startGap: 48, base: 56, holdGap: 28,
+      label: 'AVALANCHE', loop: 'avalanche', startSfx: 'whumpf', caughtSfx: 'whumpf', color: '#bfe6ff', startGap: 38, base: 56, holdGap: 14,
       startText: 'AVALANCHE  GO', caughtText: 'BURIED IN SNOW',
       endText: (m) => `${end}  ${m} M CLEAR  NITRO FULL`,
     })

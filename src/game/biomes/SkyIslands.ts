@@ -437,7 +437,7 @@ export class SkyIslands implements Biome {
     const stripe = canvasTexture(512, 64, (g, w, h) => {
       g.fillStyle = '#d9dde2'; g.fillRect(0, 0, w, h)
       g.fillStyle = '#b8322a'; g.font = 'italic 800 52px "Barlow Condensed", Arial'; g.textBaseline = 'middle'
-      g.fillText('HORIZON  AIR', 20, h / 2)
+      g.fillText('COSMOS  AIR', 20, h / 2)
     })
     const band = new THREE.Mesh(new THREE.CylinderGeometry(9.05, 9.05, 20, 32, 1, true), new THREE.MeshStandardMaterial({ map: stripe, side: THREE.DoubleSide }))
     band.rotation.x = Math.PI / 2

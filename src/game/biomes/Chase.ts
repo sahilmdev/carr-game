@@ -17,6 +17,10 @@ export interface ChaseOpts {
   /** The front's speed when `gap` equals `holdGap` (m/s). */
   base: number
   holdGap: number
+  /** Replaces the normal catch: called each time it reaches the car. */
+  onCatch?: (ev: BiomeEvents) => void
+  /** Extra HUD text and a floor for the danger level (the volcano's heat). */
+  status?: () => { text: string; level: number }
 }
 
 /**
@@ -44,6 +48,13 @@ export class Chase {
       this.cum.push(d)
       this.order.set(i, k)
     })
+  }
+
+  /** Drop the front back behind the car and hold it there for a moment. */
+  setBack(metres: number, seconds: number): void {
+    this.front = this.cum[this.carK]! - metres
+    this.gap = metres
+    this.pause = seconds
   }
 
   /** Index into `ids` at `m` metres along the stretch. */
@@ -89,7 +100,10 @@ export class Chase {
     this.pause = Math.max(0, this.pause - f.dt)
     if (this.pause === 0) this.front += v * f.dt
     if (this.gap <= 0) {
-      if (this.catches < 2) {
+      if (this.o.onCatch) {
+        this.o.onCatch(ev)
+        this.pause = 3
+      } else if (this.catches < 2) {
         this.catches++
         ev.hit(1)
         ev.toast(this.o.caughtText)
@@ -100,8 +114,9 @@ export class Chase {
       this.front = car - 55
       this.gap = 55
     }
-    const level = Math.max(0, Math.min(1, 1 - this.gap / 95))
-    ev.danger(this.o.label + '  ' + Math.round(this.gap) + ' M', level, this.o.color)
+    const st = this.o.status?.()
+    const level = Math.max(st?.level ?? 0, Math.min(1, 1 - this.gap / 95))
+    ev.danger(this.o.label + '  ' + Math.round(this.gap) + ' M' + (st?.text ? '  ' + st.text : ''), level, this.o.color)
     ev.rumble(level * level * 0.5 * f.dt * 6)
     ev.loop(this.o.loop, 0.35 + 0.65 * level)
     return false
