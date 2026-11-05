@@ -468,7 +468,7 @@ export class Jungle implements Biome {
     for (let k = 0; k < 16; k++) {
       const i = this.idx[Math.floor(this.rand() * this.idx.length)]!
       const p = this.track.samples[i]!, r = rightAt(this.track, i)
-      const off = (this.rand() - 0.5) * 40
+      const off = (this.rand() < 0.5 ? -1 : 1) * (24 + this.rand() * 26) // light falls beside the road, never across it
       const m = new THREE.Mesh(new THREE.PlaneGeometry(6 + this.rand() * 6, 40), new THREE.MeshBasicMaterial({
         map: tex, transparent: true, opacity: 0.16, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false,
       }))

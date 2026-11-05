@@ -26,6 +26,7 @@ import { CarFx } from './CarFx'
 import { Warp } from './Warp'
 import { Trophy } from './biomes/Finish'
 import { Flourish } from './Flourish'
+import { sweepRoad } from './RoadSweep'
 import type { SfxName, LoopName } from './Sfx'
 
 const BASE = import.meta.env.BASE_URL
@@ -106,7 +107,7 @@ const AREAS: Partial<Record<string, [string, string]>> = {
   causeway: ['OCEAN CAUSEWAY', 'Over the bay'],
   underwater: ['UNDERWATER TUNNEL', 'Double loop ahead'],
   space: ['LUNAR PLATEAU', 'Low gravity · boost pads'],
-  canyon: ['RED ROCK CANYON', 'Rockslides, then pick your lane'],
+  canyon: ['RED ROCK CANYON', 'Rockslides · boost strips'],
   volcano: ['VOLCANO', 'Erupting · outrun the lava'],
   desert: ['DUNE SEA', 'Sandstorm ahead'],
   saltflat: ['SALT FLATS', 'Speed trap · flat out'],
@@ -362,7 +363,11 @@ export class Game {
       if (carModel) this.car.applyModel(carModel, 4.5, 0, hq !== null)
       this.scenery.applyModels((name) => this.assets.get(name))
       return this.scenery.biomes.propsReady
-    }).then(() => { this.precompile(); this.loaded = true })
+    }).then(() => {
+      sweepRoad(this.scenery.group, this.track)
+      this.precompile()
+      this.loaded = true
+    })
 
     this.fx = new CarFx()
     this.gfx.scene.add(this.fx.group, this.warp.mesh, this.trophy.group)

@@ -169,10 +169,12 @@ export class SkyIslands implements Biome {
       const R = under ? 26 + this.rand() * 10 : 14 + this.rand() * 20
       const off = under ? 0 : side * (R + 22 + this.rand() * 40)
       const cx = p.x + r.x * off, cz = p.z + r.z * off
-      const top = under ? p.y - 6 : p.y - 8 + this.rand() * 22
+      let low = p.y
+      if (under) for (const q of this.idx) { const s = this.track.samples[q]!; if (Math.hypot(s.x - cx, s.z - cz) < R + 12) low = Math.min(low, s.y) }
+      const top = under ? low - 6 : p.y - 8 + this.rand() * 22
       k++
       // side islands never reach back over another stretch of the highway
-      if (!under && ctx.road.nearest(cx, cz, R + 24).d < R + 20) continue
+      if (!under && ctx.road.nearest(cx, cz, R + 30).d < R + 26) continue
       ;((this.group.userData['islandTops'] ??= []) as number[][]).push([cx, top, cz, R])
       const isl = new THREE.Group()
       isl.position.set(cx, top, cz)

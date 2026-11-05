@@ -337,9 +337,9 @@ export class Snow implements Biome {
   private buildSkiLift(t: Terrain): void {
     // run away from the road: up the slope on the lake's far side
     const a0 = new THREE.Vector3(LAKE.x - 60, 0, LAKE.z + 60)
-    const a1 = new THREE.Vector3(LAKE.x - 300, 0, LAKE.z + 230)
+    const a1 = new THREE.Vector3(LAKE.x - 130, 0, LAKE.z + 100)
     const steel = new THREE.MeshStandardMaterial({ color: 0x8b9196, metalness: 0.7, roughness: 0.4 })
-    const N = 7
+    const N = 4
     const tops: THREE.Vector3[] = []
     for (let k = 0; k <= N; k++) {
       const p = a0.clone().lerp(a1, k / N)

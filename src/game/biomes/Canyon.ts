@@ -5,8 +5,6 @@ import type { Track } from '../Track'
 import { rockSet, tiled } from '../Textures'
 import { biomeGroup, fbm2, lumpy, rng, zoneIndices, rightAt, canvasTexture, puffTexture, roadSign, besideRoad, smooth } from './kit'
 
-/** Half the rock spine's width, plus half the car. */
-const SPINE_CLEAR = 2.1
 
 interface Rock { m: THREE.Mesh; from: THREE.Vector3; to: THREE.Vector3; vel: THREE.Vector3; delay: number; spin: number }
 /** A rockfall that lands across lateral range lat0–lat1 at sample i. */
@@ -23,8 +21,7 @@ interface Slide {
 
 /**
  * Red Rock Canyon: rockslides block half the road before the loop, and after
- * it a rock spine splits the road. Left is clear. Right has two boost strips
- * and falling rock to weave through at speed.
+ * it two boost strips and more falling rock to weave through at speed.
  */
 export class Canyon implements Biome {
   readonly name = 'canyon'
@@ -33,12 +30,6 @@ export class Canyon implements Biome {
   private before: number[] = []
   private after: number[] = []
   private slides: Slide[] = []
-  private spineFrom = 0
-  private spineTo = 0
-  private lane = 0
-  private scraped = false
-  private clean = true
-  private riskRun = false
 
   constructor(private readonly track: Track) {
     const ids = zoneIndices(track, 'canyon').filter((i) => track.samples[i]!.y > -1)
@@ -95,48 +86,9 @@ export class Canyon implements Biome {
     this.slides.push({ i, lat0, lat1, text, state: 'idle', t: 0, rocks, dust })
   }
 
-  /** The rock spine, the warning sign, the boost strips and the risky lane's rockfalls. */
+  /** The boost strips and the rockfalls after the loop. */
   private buildSplit(ctx: BuildCtx): void {
     const t = this.track, a = this.after, n = a.length
-    const k0 = Math.floor(n * 0.14), k1 = Math.floor(n * 0.84)
-    this.spineFrom = a[k0]!
-    this.spineTo = a[k1]!
-    const set = tiled(rockSet(), 2, 12)
-    const mat = new THREE.MeshStandardMaterial({ color: 0xa8775a, map: set.map, normalMap: set.normalMap, roughness: 1, flatShading: true })
-    const ROWS = 7
-    const pos: number[] = [], uv: number[] = [], ind: number[] = []
-    let d = 0, row = 0
-    const total = k1 - k0
-    for (let k = k0; k <= k1; k++) {
-      const i = a[k]!, p = t.samples[i]!, r = rightAt(t, i)
-      if (k > k0) d += p.distanceTo(t.samples[a[k - 1]!]!)
-      // rises out of the road at the nose, sinks back at the tail
-      const u = (k - k0) / total
-      const grow = smooth(0, 0.1, u) * (1 - smooth(0.92, 1, u))
-      const h = (1.7 + fbm2(d * 0.11, 3) * 3) * grow
-      for (let c = 0; c < ROWS; c++) {
-        const q = c / (ROWS - 1), a2 = q * Math.PI
-        const bump = (fbm2(d * 0.3, c * 1.7) - 0.5) * 0.5
-        const x = Math.cos(a2) * (1.05 + bump) * Math.max(0.15, grow)
-        pos.push(p.x + r.x * x, p.y - 0.1 + Math.sin(a2) * (h + bump * grow), p.z + r.z * x)
-        uv.push(q, d / 14)
-      }
-      if (row) for (let c = 0; c < ROWS - 1; c++) { const b = row * ROWS + c, o = b - ROWS; ind.push(o, b, o + 1, o + 1, b, b + 1) }
-      row++
-    }
-    const g = new THREE.BufferGeometry()
-    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
-    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2))
-    g.setIndex(ind)
-    g.computeVertexNormals()
-    mat.side = THREE.DoubleSide
-    const spine = new THREE.Mesh(g, mat)
-    spine.castShadow = true
-    spine.receiveShadow = true
-    this.group.add(spine)
-
-    this.group.add(besideRoad(t, a[Math.max(0, k0 - 10)]!, 14, roadSign(['ROAD SPLITS', 'RIGHT = RISK + BOOST'], '#f2c400', '#111', 3.8, 1.8)))
-
     const arrows = canvasTexture(128, 256, (c, w, h) => {
       c.clearRect(0, 0, w, h)
       c.strokeStyle = '#46e6ff'
@@ -157,45 +109,14 @@ export class Canyon implements Biome {
       this.group.add(m)
       ctx.addBoost(i, 5.6, 3.2)
     }
-    // a slalom: first rocks on the outside of the lane, then against the spine
+    // a slalom: rocks on one side of the road, then the other
     this.addSlide(a[Math.floor(n * 0.4)]!, 5.4, 10, null)
-    this.addSlide(a[Math.floor(n * 0.7)]!, 1.6, 6, null)
+    this.addSlide(a[Math.floor(n * 0.7)]!, -5.4, 8, null)
   }
 
   private latAt(f: FrameCtx): number {
     const p = this.track.samples[f.carIdx]!, r = rightAt(this.track, f.carIdx)
     return (f.carPos.x - p.x) * r.x + (f.carPos.z - p.z) * r.z
-  }
-
-  private updateSpine(f: FrameCtx, ev: BiomeEvents, lat: number): void {
-    const i = f.carIdx
-    if (!this.spineFrom || i < this.spineFrom || i > this.spineTo) {
-      if (this.riskRun && i > this.spineTo && i < this.spineTo + 80) {
-        this.riskRun = false
-        if (this.clean) ev.toast('RISK LANE CLEAN', 'best')
-      }
-      this.lane = 0
-      return
-    }
-    if (this.lane === 0) {
-      this.lane = lat >= 0 ? 1 : -1
-      this.scraped = false
-      this.clean = true
-      this.riskRun = this.lane > 0
-    }
-    // the spine has grown in by now: hold the car on its own side
-    const grown = (i - this.spineFrom) / (this.spineTo - this.spineFrom) > 0.1
-    const over = SPINE_CLEAR - lat * this.lane
-    if (grown && over > 0) {
-      const r = rightAt(this.track, i)
-      ev.push(r.x * this.lane * over, r.z * this.lane * over)
-      if (!this.scraped) {
-        this.scraped = true
-        ev.hit(0.3)
-      }
-    } else if (over < -1) {
-      this.scraped = false
-    }
   }
 
   update(f: FrameCtx, ev: BiomeEvents): void {
@@ -210,7 +131,6 @@ export class Canyon implements Biome {
     }
     if (f.zone === 'loop') return
     const lat = this.latAt(f)
-    this.updateSpine(f, ev, lat)
     const car = f.carIdx
     for (const s of this.slides) {
       if (s.state === 'idle') {
@@ -262,7 +182,6 @@ export class Canyon implements Biome {
       if (s.state === 'down' && near && lat > s.lat0 - 1 && lat < s.lat1 + 1) {
         s.state = 'scatter'
         s.t = 0
-        this.clean = false
         ev.hit(0.6)
         ev.toast('HIT THE ROCKS')
         ev.sfx('rockImpact')

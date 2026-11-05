@@ -18,13 +18,12 @@ const SPLASH = 26
 const BIRDS = 44
 const FLYERS = 46
 const ROCKS = 70
-const SERPENT = 44
 /** Zones that open with a big arch; the name is the arch's place on the lap. */
 const PORTAL_ZONES: ZoneName[] = ['causeway', 'canyon', 'volcano', 'desert', 'saltflat', 'snow', 'sky', 'jungle', 'city']
 
 /**
  * Set dressing that sits outside the biome groups and switches itself on by
- * zone: flight rings, area arches, spray, the sea serpent, asteroids, birds,
+ * zone: flight rings, area arches, spray, asteroids, birds,
  * hover traffic and the final billboards. Nothing here is ever on the road
  * except the rings, which hang in the air over the gaps.
  */
@@ -45,11 +44,6 @@ export class Flourish {
   private diveIdx = -1
   private dived = false
 
-  private rays!: THREE.Group
-  private serpent!: THREE.InstancedMesh
-  private serpentIds: number[] = []
-  private serpentT = -1
-
   private rocks!: THREE.InstancedMesh
   private readonly rockSeed: { p: THREE.Vector3; s: number; a: THREE.Vector3; w: number }[] = []
 
@@ -67,7 +61,6 @@ export class Flourish {
     this.buildRings()
     this.buildPortals()
     this.buildSplash()
-    this.buildSea()
     this.buildRocks()
     this.buildBirds()
     this.buildCity(skipBoard)
@@ -201,70 +194,6 @@ export class Flourish {
       ;(s.material as THREE.SpriteMaterial).opacity = 0.75 * (1 - t / life)
       if (t >= life) s.visible = false
     }
-  }
-
-  // ── under the sea: god rays and the serpent ──
-  private buildSea(): void {
-    const t = this.track
-    const ids = zoneIndices(t, 'underwater')
-    const tex = canvasTexture(64, 256, (g, w, h) => {
-      const gr = g.createLinearGradient(0, 0, 0, h)
-      gr.addColorStop(0, 'rgba(190,245,255,0.6)')
-      gr.addColorStop(1, 'rgba(190,245,255,0)')
-      g.fillStyle = gr
-      g.fillRect(0, 0, w, h)
-      g.globalCompositeOperation = 'destination-in'
-      const e = g.createLinearGradient(0, 0, w, 0)
-      e.addColorStop(0, 'rgba(0,0,0,0)')
-      e.addColorStop(0.5, 'rgba(0,0,0,1)')
-      e.addColorStop(1, 'rgba(0,0,0,0)')
-      g.fillStyle = e
-      g.fillRect(0, 0, w, h)
-    })
-    this.rays = new THREE.Group()
-    this.rays.visible = false
-    const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false, opacity: 0.55 })
-    const geo = new THREE.PlaneGeometry(14, 62)
-    const mats: THREE.Matrix4[] = []
-    for (let k = 0; k < 90; k++) {
-      const i = ids[Math.floor(this.rand() * ids.length)]!
-      const p = t.samples[i]!, r = rightAt(t, i), lat = (this.rand() < 0.5 ? -1 : 1) * (17 + this.rand() * 45)
-      mats.push(trs(p.x + r.x * lat, -24, p.z + r.z * lat, this.rand() * 3.14, 1, 0, 0.16))
-    }
-    this.rays.add(instanced(geo, mat, mats, undefined, false))
-    this.group.add(this.rays)
-
-    // the last long sea-floor run, away from the spiral and the loops
-    this.serpentIds = ids.slice(Math.floor(ids.length * 0.76), Math.floor(ids.length * 0.97))
-    const body = new THREE.MeshStandardMaterial({ color: 0x173b4a, roughness: 0.45, metalness: 0.3, emissive: 0x0d7f8c, emissiveIntensity: 0.55, fog: true })
-    this.serpent = new THREE.InstancedMesh(lumpy(new THREE.IcosahedronGeometry(1, 2), 0.1, 1.4, 3), body, SERPENT)
-    this.serpent.frustumCulled = false
-    this.serpent.visible = false
-    this.group.add(this.serpent)
-  }
-
-  private updateSerpent(f: FlourishFrame): void {
-    const ids = this.serpentIds, first = ids[0]!, last = ids[ids.length - 1]!
-    const inside = f.idx >= first - 60 && f.idx <= last
-    if (!inside) { this.serpentT = -1; this.serpent.visible = false; return }
-    if (this.serpentT < 0) { this.serpentT = 0; f.sfx('whale', 0.9, 0) }
-    this.serpentT += f.dt
-    this.serpent.visible = true
-    const t = this.track
-    // it passes the car, head first, and pulls away
-    const head = f.idx - 40 + this.serpentT * 34
-    for (let k = 0; k < SERPENT; k++) {
-      const u = k / SERPENT
-      const i = (Math.floor(head - k * 3.5) + t.sampleCount) % t.sampleCount
-      const p = t.samples[i]!, r = rightAt(t, i)
-      const wave = Math.sin(this.serpentT * 3.2 - k * 0.42)
-      const lat = 34 + wave * 5
-      const s = (u < 0.1 ? 2.6 + u * 30 : 5.6 * (1 - u) + 0.5)
-      this.m.makeScale(s * 1.2, s, s * 1.2)
-      this.m.setPosition(p.x + r.x * lat, p.y + 9 + Math.cos(this.serpentT * 2.4 - k * 0.42) * 3, p.z + r.z * lat)
-      this.serpent.setMatrixAt(k, this.m)
-    }
-    this.serpent.instanceMatrix.needsUpdate = true
   }
 
   // ── moon: asteroids well clear of the road ──
@@ -407,7 +336,6 @@ export class Flourish {
     this.resetRings()
     this.birdNext = 0
     this.dived = false
-    this.serpentT = -1
   }
 
   update(f: FlourishFrame, flying: boolean): void {
@@ -420,10 +348,6 @@ export class Flourish {
     })
     this.portals.instanceMatrix.needsUpdate = true
     this.updateSplash(f)
-    const sea = z === 'underwater'
-    this.rays.visible = sea
-    if (sea) this.updateSerpent(f)
-    else this.serpent.visible = false
     this.rocks.visible = z === 'space' || z === 'flight1' || z === 'flight2'
     if (this.rocks.visible) this.updateRocks(f.time)
     this.birds.visible = z === 'jungle'

@@ -544,10 +544,12 @@ export class UnderwaterWorld {
     geo.translate(0, -20, 0)
     let seed = 7
     const rand = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647 }
-    for (let k = 0; k < 28; k++) {
+    for (let k = 0; k < 70 && this.shafts.length < 28; k++) {
       const i = idx[Math.floor(rand() * idx.length)]!
       const p = this.track.samples[i]!
-      const v = p.clone().addScaledVector(right(i), (rand() - 0.5) * 70)
+      const v = p.clone().addScaledVector(right(i), (rand() < 0.5 ? -1 : 1) * (24 + rand() * 30))
+      // the beam leans 14 m over its length: keep the whole of it off every pass of the road
+      if (idx.some((q) => { const s = this.track.samples[q]!; return Math.hypot(s.x - v.x, s.z - v.z) < 30 })) continue
       const m = new THREE.Mesh(geo, mat)
       m.position.set(v.x, -0.5, v.z)
       m.rotation.set(0.35 + (rand() - 0.5) * 0.1, 0.4, (rand() - 0.5) * 0.15) // sun is to one side
