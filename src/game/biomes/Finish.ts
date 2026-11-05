@@ -51,7 +51,9 @@ export class Stadium implements Biome {
       for (const side of [-1, 1]) {
         for (let q = 0; q < TIERS; q++) {
           const lat = side * (START + q * 1.9), y = p.y + q * 1.25
-          concrete.push(trs(p.x + r.x * lat, y - 2, p.z + r.z * lat, yaw, new THREE.Vector3(2.1, 4.2 + q * 1.25, 4.6)))
+          // each tier's top sits just under its own row of fans
+          const tall = q * 1.25 + 3
+          concrete.push(trs(p.x + r.x * lat, y + 0.1 - tall / 2, p.z + r.z * lat, yaw, new THREE.Vector3(2.1, tall, 5.4)))
           for (let f = 0; f < 3; f++) {
             const x = p.x + r.x * lat + tg.x * (f - 1) * 1.4, z = p.z + r.z * lat + tg.z * (f - 1) * 1.4
             fans.push(trs(x, y + 0.75 + this.rand() * 0.25, z, yaw))

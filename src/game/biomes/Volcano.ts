@@ -242,7 +242,8 @@ export class Volcano implements Biome {
       onCatch: (ev) => { this.heat += 0.45; ev.hit(0.6); ev.toast('LAVA CAUGHT YOU'); ev.sfx('boom') },
       status: () => ({ text: this.heat > 0.02 ? `HEAT ${Math.round(this.heat * 100)}%` : '', level: this.heat }),
     })
-    const flow = lavaMaterial(true, this.lavaShaders)
+    const flow = lavaMaterial(true, this.lavaShaders, 0.32)
+    flow.side = THREE.DoubleSide // the ribbons wind downward: seen from above otherwise they vanish
     const strip = (lat: number, width: number, up: number): THREE.Mesh => {
       const pts = ids.map((i) => {
         const p = t.samples[i]!, r = rightAt(t, i)
@@ -367,7 +368,7 @@ export class Volcano implements Biome {
       if (c.carK >= b.k0 && c.carK <= b.k1 && lat * b.side > -0.4) burning = true
     }
     const near = Math.max(0, 1 - c.gap / 70)
-    this.heat += f.dt * (burning ? 0.6 : near * near * 0.22 - (near < 0.3 ? 0.05 : 0))
+    this.heat += f.dt * (burning ? 0.7 : near * near * 0.22 - (near < 0.3 ? 0.05 : 0))
     this.heat = Math.max(0, this.heat)
     if (burning) {
       if (!this.onLava) { ev.sfx('boom', 0.6); ev.flash(0xff4a10, 0.35) }
@@ -740,8 +741,8 @@ export class Volcano implements Biome {
         const u = Math.min(1, this.blastT * v / 3.4)
         s.visible = true
         s.position.set(V.x + Math.cos(a) * u * 70, 30 + 300 * u * (1.25 - 0.5 * u), V.z + Math.sin(a) * u * 70)
-        s.scale.setScalar(50 + u * 170)
-        ;(s.material as THREE.SpriteMaterial).opacity = 0.95 * (1 - u)
+        s.scale.setScalar(36 + u * 120)
+        ;(s.material as THREE.SpriteMaterial).opacity = 0.3 * (1 - u)
       }
       this.glow.intensity *= 1 + 3 * (1 - smooth(0, 5, this.blastT))
       if (this.blastT >= 6) for (const s of this.blast) s.visible = false

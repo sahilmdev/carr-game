@@ -252,16 +252,16 @@ export class Flourish {
     this.serpent.visible = true
     const t = this.track
     // it passes the car, head first, and pulls away
-    const head = f.idx + 10 + this.serpentT * 42
+    const head = f.idx - 40 + this.serpentT * 34
     for (let k = 0; k < SERPENT; k++) {
       const u = k / SERPENT
-      const i = Math.floor(head - k * 7) % t.sampleCount
+      const i = (Math.floor(head - k * 3.5) + t.sampleCount) % t.sampleCount
       const p = t.samples[i]!, r = rightAt(t, i)
       const wave = Math.sin(this.serpentT * 3.2 - k * 0.42)
-      const lat = 46 + wave * 7
+      const lat = 34 + wave * 5
       const s = (u < 0.1 ? 2.6 + u * 30 : 5.6 * (1 - u) + 0.5)
       this.m.makeScale(s * 1.2, s, s * 1.2)
-      this.m.setPosition(p.x + r.x * lat, p.y + 13 + Math.cos(this.serpentT * 2.4 - k * 0.42) * 4, p.z + r.z * lat)
+      this.m.setPosition(p.x + r.x * lat, p.y + 9 + Math.cos(this.serpentT * 2.4 - k * 0.42) * 3, p.z + r.z * lat)
       this.serpent.setMatrixAt(k, this.m)
     }
     this.serpent.instanceMatrix.needsUpdate = true

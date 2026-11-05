@@ -128,7 +128,7 @@ export interface RaceResult {
 }
 
 /** Lap-time targets for the medals (ms). */
-const MEDALS: [NonNullable<RaceResult['medal']>, number][] = [['GOLD', 137000], ['SILVER', 150000], ['BRONZE', 167000]]
+const MEDALS: [NonNullable<RaceResult['medal']>, number][] = [['GOLD', 141000], ['SILVER', 154000], ['BRONZE', 171000]]
 const SPLIT_KEY = 'horizon-drive-split-'
 /** Replay buffer: 30 frames a second for 7 seconds. */
 const REPLAY_N = 210
@@ -1048,7 +1048,7 @@ export class Game {
       this.followTrack(slow)
       const f = this.car.getForwardDir(this._pv), p = this.car.position
       const u = t / FIN_SLOW
-      cam.position.set(p.x + f.x * (6 - 9 * u) - f.z * 5.2, p.y + 0.8, p.z + f.z * (6 - 9 * u) + f.x * 5.2)
+      cam.position.set(p.x + f.x * (7 - 11 * u) - f.z * 8, p.y + 1, p.z + f.z * (7 - 11 * u) + f.x * 8)
       cam.lookAt(p.x, p.y + 0.9, p.z)
       if (cam.fov !== 50) { cam.fov = 50; cam.updateProjectionMatrix() }
       return
@@ -1072,6 +1072,7 @@ export class Game {
     this.car.setPose(this._flightPos, R[a + 3]!)
     this.car.mesh.rotation.x = R[a + 4]!
     this.car.spinWheels(0.5)
+    this.car.setHeadlights(0) // head-on to this camera they would flare out the whole car
     this.updateBlobShadow(this._flightPos.y - 0.02)
     if (t < 0.05) {
       this.flashColor.set(0xffffff)

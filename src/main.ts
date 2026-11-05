@@ -138,7 +138,7 @@ const ui: GameUI = {
     endTime.textContent = formatTime(r.totalMs)
     endBest.textContent = formatTime(r.bestTotalMs)
     endNewBest.classList.toggle('hidden', !r.isNewBest)
-    endMedal.textContent = r.medal ? `${r.medal} MEDAL` : 'NO MEDAL · BRONZE UNDER 2:47'
+    endMedal.textContent = r.medal ? `${r.medal} MEDAL` : 'NO MEDAL · BRONZE UNDER 2:51'
     endMedal.className = `end-medal ${(r.medal ?? 'none').toLowerCase()}`
     // Lap splits (fastest highlighted) + all-time best lap
     endLaps.innerHTML = ''

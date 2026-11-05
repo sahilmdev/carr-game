@@ -5,9 +5,9 @@ import * as THREE from 'three'
  * melt. `flowUv` = the flow runs along uv.y (rivers, channels); otherwise
  * it churns in world XZ (the lake).
  */
-export function lavaMaterial(flowUv: boolean, shaders: { uniforms: Record<string, THREE.IUniform> }[]): THREE.MeshStandardMaterial {
+export function lavaMaterial(flowUv: boolean, shaders: { uniforms: Record<string, THREE.IUniform> }[], glow = 1): THREE.MeshStandardMaterial {
   const mat = new THREE.MeshStandardMaterial({ color: 0x120806, roughness: 0.75, metalness: 0, emissive: 0xffffff })
-  mat.customProgramCacheKey = () => `lava-${flowUv}`
+  mat.customProgramCacheKey = () => `lava-${flowUv}-${glow}`
   mat.onBeforeCompile = (shader) => {
     shader.uniforms['uTime'] = { value: 0 }
     shaders.push(shader)
@@ -53,7 +53,7 @@ export function lavaMaterial(flowUv: boolean, shaders: { uniforms: Record<string
       .replace('#include <emissivemap_fragment>', /* glsl */ `#include <emissivemap_fragment>
         {
           vec3 hot = mix(vec3(0.9, 0.12, 0.01), vec3(1.0, 0.62, 0.12), lavaHeat * lavaHeat);
-          totalEmissiveRadiance = hot * (0.25 + lavaHeat * 4.2);
+          totalEmissiveRadiance = hot * (0.25 + lavaHeat * 4.2) * ${glow.toFixed(2)};
         }`)
   }
   return mat
