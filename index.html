@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Horizon Drive</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏁</text></svg>" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@1,700;1,800&family=Inter:wght@400;500;600;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <!-- ============ SPLASH SCREEN ============ -->
+  <div id="loading" class="screen loading">
+    <div class="loading-logo">HORIZON <span>DRIVE</span></div>
+    <div class="loading-bar"><div id="loading-fill" class="loading-fill"></div></div>
+    <div id="loading-label" class="loading-label">LOADING WORLD</div>
+  </div>
+  <div id="splash" class="screen">
+    <div class="splash-vignette"></div>
+    <div class="splash-content">
+      <div class="logo-container">
+        <div class="logo-horizon">HORIZON</div>
+        <div class="logo-drive">Drive</div>
+      </div>
+
+      <div class="opt-list">
+        <div class="opt-row"><span class="opt-label">Time</span>
+          <div id="tod-picker" class="tod-picker" role="radiogroup" aria-label="Time of day">
+            <button class="tod-btn" data-tod="morning" role="radio">Morning</button>
+            <button class="tod-btn" data-tod="midday" role="radio">Midday</button>
+            <button class="tod-btn" data-tod="sunset" role="radio">Sunset</button>
+            <button class="tod-btn" data-tod="night" role="radio">Night</button>
+          </div>
+        </div>
+        <div class="opt-row"><span class="opt-label">Weather</span>
+          <div id="weather-picker" class="tod-picker" role="radiogroup" aria-label="Weather">
+            <button class="tod-btn" data-weather="clear" role="radio">Clear</button>
+            <button class="tod-btn" data-weather="rain" role="radio">Rain</button>
+          </div>
+        </div>
+        <div class="opt-row"><span class="opt-label">Laps</span>
+          <div id="laps-picker" class="tod-picker" role="radiogroup" aria-label="Race length">
+            <button class="tod-btn" data-laps="1" role="radio">1</button>
+            <button class="tod-btn" data-laps="3" role="radio">3</button>
+            <button class="tod-btn" data-laps="5" role="radio">5</button>
+          </div>
+        </div>
+        <div class="opt-row"><span class="opt-label">Ghost car</span>
+          <div id="ghost-picker" class="tod-picker" role="radiogroup" aria-label="Ghost car">
+            <button class="tod-btn" data-ghost="on" role="radio">On</button>
+            <button class="tod-btn" data-ghost="off" role="radio">Off</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="menu-actions">
+        <button id="start-btn" class="start-button"><span class="start-label">Start race</span></button>
+        <button id="settings-open" class="settings-link">Settings</button>
+      </div>
+    </div>
+    <div class="control-hints">
+      <span><kbd>&larr;</kbd><kbd>&rarr;</kbd> Steer</span>
+      <span><kbd>&uarr;</kbd><kbd>&darr;</kbd> Drive</span>
+      <span><kbd>Shift</kbd> Nitro</span>
+      <span><kbd>P</kbd> Photo</span>
+    </div>
+  </div>
+
+  <!-- ============ HUD ============ -->
+  <div id="hud" class="screen hidden">
+    <div class="hud-top-left">
+      <span class="hud-label">Time</span>
+      <span id="hud-time" class="hud-value">00:00:000</span>
+      <span id="hud-lap" class="hud-lap">LAP 1/1</span>
+    </div>
+    <div id="danger-vig" class="danger-vig"></div>
+    <div id="danger" class="danger hidden"><span id="danger-label"></span><div class="danger-track"><div id="danger-fill"></div></div></div>
+    <div id="lap-toast" class="lap-toast hidden"></div>
+    <div id="event-toast" class="lap-toast event-toast hidden"></div>
+    <div id="area-card" class="area-card hidden"><div id="area-title" class="area-title"></div><div id="area-sub" class="area-sub"></div></div>
+    <div class="hud-top-right">
+      <button id="hud-photo-btn" class="hud-btn" aria-label="Photo mode" title="Photo mode"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3.5L9 5.5h6L16.5 8H20v11H4z"/><circle cx="12" cy="13" r="3.4"/></svg></button>
+      <button id="hud-settings-btn" class="hud-btn" aria-label="Settings" title="Settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg></button>
+      <button id="mute-btn" class="hud-btn" aria-label="Toggle sound" title="Sound"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path class="snd-on" d="M15.5 9a4 4 0 0 1 0 6M18 6.5a8 8 0 0 1 0 11"/><path class="snd-off" d="M16 9.5l5 5M21 9.5l-5 5"/></svg></button>
+      <button id="exit-btn" class="hud-btn" aria-label="Exit race" title="Exit race"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="hud-bottom-right">
+      <canvas id="minimap" width="220" height="170"></canvas>
+      <div class="hud-speed nitro">
+        <svg class="speed-gauge" viewBox="0 0 220 220" aria-hidden="true">
+          <defs>
+            <linearGradient id="spd-grad" gradientUnits="userSpaceOnUse" x1="30" y1="0" x2="190" y2="0">
+              <stop offset="0" stop-color="#3fd8ff" /><stop offset="0.6" stop-color="#ffffff" /><stop offset="1" stop-color="#ff3b3b" />
+            </linearGradient>
+          </defs>
+          <circle class="gauge-disc" cx="110" cy="110" r="106" />
+          <g id="gauge-ticks"></g>
+          <path class="gauge-bg" pathLength="100" d="M44.95 175.05 A92 92 0 1 1 175.05 175.05" />
+          <path id="speed-arc" class="gauge-arc" pathLength="100" stroke-dasharray="0 100" d="M44.95 175.05 A92 92 0 1 1 175.05 175.05" />
+          <path class="gauge-bg thin" pathLength="100" d="M54.85 165.15 A78 78 0 1 1 165.15 165.15" />
+          <path id="nitro-fill" class="nitro-arc" pathLength="100" stroke-dasharray="100 100" d="M54.85 165.15 A78 78 0 1 1 165.15 165.15" />
+        </svg>
+        <div class="hud-speed-readout">
+          <span id="hud-mph" class="hud-mph">0</span>
+          <span class="hud-mph-label">MPH</span>
+          <span class="nitro-label">NITRO</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ COUNTDOWN ============ -->
+  <div id="countdown" class="screen hidden">
+    <div id="countdown-num"></div>
+  </div>
+
+  <!-- ============ END SCREEN ============ -->
+  <div id="end-screen" class="screen hidden">
+    <div class="end-vignette"></div>
+    <div class="end-content">
+      <div class="end-title">FINISH</div>
+      <div id="end-newbest" class="end-newbest hidden">NEW BEST!</div>
+      <div id="end-medal" class="end-medal hidden"></div>
+      <div class="end-times">
+        <div class="end-time-row">
+          <span class="end-time-label">TIME</span>
+          <span id="end-time" class="end-time-value">00:00:000</span>
+        </div>
+        <div class="end-time-row">
+          <span class="end-time-label">BEST</span>
+          <span id="end-best" class="end-time-value">--:--:---</span>
+        </div>
+      </div>
+      <div id="end-laps" class="end-laps"></div>
+      <div class="end-buttons">
+        <button id="retry-btn" class="start-button"><span class="start-label">Race again</span></button>
+        <button id="end-exit-btn" class="end-exit">EXIT TO MENU</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ PHOTO MODE ============ -->
+  <div id="photo-mode" class="hidden">
+    <div id="photo-help" class="photo-help">
+      <div class="photo-title">PHOTO MODE</div>
+      <div>WASD move &middot; Q/E down/up &middot; drag or arrows to look</div>
+      <div>scroll to zoom &middot; SHIFT faster &middot; H hide this</div>
+    </div>
+    <div class="photo-actions">
+      <button id="photo-save" class="settings-done">SAVE PHOTO</button>
+      <button id="photo-exit" class="settings-link">EXIT (P)</button>
+    </div>
+    <div id="photo-flash" class="photo-flash"></div>
+  </div>
+
+  <!-- ============ SETTINGS ============ -->
+  <div id="settings" class="screen hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <div class="settings-panel">
+      <div id="settings-title" class="settings-title">SETTINGS</div>
+
+      <div class="settings-row">
+        <div class="settings-label">GRAPHICS</div>
+        <div class="seg-group" data-setting="quality">
+          <button data-value="auto">AUTO</button>
+          <button data-value="low">LOW</button>
+          <button data-value="medium">MEDIUM</button>
+          <button data-value="high">HIGH</button>
+        </div>
+        <div id="quality-note" class="settings-note"></div>
+      </div>
+
+      <div class="settings-row">
+        <label class="settings-label" for="volume-slider">VOLUME <span id="volume-value"></span></label>
+        <input id="volume-slider" type="range" min="0" max="100" step="5" />
+      </div>
+
+      <div class="settings-row">
+        <div class="settings-label">MOTION BLUR</div>
+        <div class="seg-group" data-setting="motionBlur">
+          <button data-value="true">ON</button>
+          <button data-value="false">OFF</button>
+        </div>
+      </div>
+
+      <div class="settings-row">
+        <div class="settings-label">CAMERA</div>
+        <div class="seg-group" data-setting="camera">
+          <button data-value="near">NEAR</button>
+          <button data-value="normal">NORMAL</button>
+          <button data-value="far">FAR</button>
+        </div>
+      </div>
+
+      <div class="settings-actions">
+        <button id="settings-reset" class="settings-link">RESET</button>
+        <button id="settings-close" class="settings-done">DONE</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ MOBILE TOUCH CONTROLS ============ -->
+  <div id="touch-controls" class="hidden">
+    <div class="touch-steer">
+      <button id="touch-left" class="touch-btn">&#9668;</button>
+      <button id="touch-right" class="touch-btn">&#9658;</button>
+    </div>
+    <div class="touch-drive">
+      <button id="touch-brake" class="touch-btn">&#9660;</button>
+      <button id="touch-nitro" class="touch-btn touch-nitro">N2O</button>
+      <button id="touch-accel" class="touch-btn touch-accel">&#9650;</button>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Horizon Drive: Realism Guide</title>
+<style>
+  @page { size: A4; margin: 16mm 15mm 18mm; }
+  :root { --ink:#1c1f24; --muted:#5b6370; --line:#d9dde3; --accent:#1f6feb; --soft:#f3f6fa; --warn:#9a5b00; --warnbg:#fff6e6; }
+  * { box-sizing: border-box; }
+  body { font: 10.5pt/1.5 "Segoe UI", Arial, sans-serif; color: var(--ink); margin: 0; }
+  h1 { font-size: 22pt; margin: 0 0 2mm; letter-spacing: -0.3px; }
+  h2 { font-size: 14.5pt; margin: 9mm 0 2mm; padding-top: 2mm; border-top: 2px solid var(--ink); break-after: avoid; }
+  h3 { font-size: 11.5pt; margin: 5mm 0 1.5mm; break-after: avoid; }
+  p { margin: 1.5mm 0; }
+  .sub { color: var(--muted); margin-bottom: 6mm; }
+  a { color: var(--accent); text-decoration: none; word-break: break-all; }
+  code, .path { font-family: Consolas, "Courier New", monospace; font-size: 9.5pt; background: var(--soft); padding: 0 3px; border-radius: 3px; }
+  pre { font-family: Consolas, monospace; font-size: 9pt; background: var(--soft); padding: 3mm; border-radius: 4px; white-space: pre-wrap; margin: 2mm 0; }
+  table { width: 100%; border-collapse: collapse; margin: 2mm 0 3mm; font-size: 9.5pt; break-inside: auto; }
+  th, td { text-align: left; vertical-align: top; padding: 1.6mm 2mm; border-bottom: 1px solid var(--line); }
+  th { background: var(--soft); font-weight: 600; }
+  tr { break-inside: avoid; }
+  .box { border: 1px solid var(--line); border-radius: 5px; padding: 3mm 4mm; margin: 3mm 0; background: #fff; break-inside: avoid; }
+  .where { background: var(--soft); }
+  .warn { background: var(--warnbg); border-color: #f0d49a; }
+  .warn b { color: var(--warn); }
+  .step { display: inline-block; min-width: 6mm; height: 6mm; line-height: 6mm; text-align: center; border-radius: 50%; background: var(--ink); color: #fff; font-weight: 700; font-size: 9pt; margin-right: 2mm; }
+  ol, ul { margin: 1mm 0 2mm 5mm; padding-left: 4mm; }
+  li { margin: 0.8mm 0; }
+  .rank { font-weight: 700; color: var(--accent); white-space: nowrap; }
+  .toc td { border: none; padding: 0.8mm 2mm; }
+  .page-break { break-before: page; }
+  .small { font-size: 9pt; color: var(--muted); }
+  .check li { list-style: "☐  "; }
+</style>
+</head>
+<body>
+
+<h1>Horizon Drive: Realism Guide</h1>
+<p class="sub">What was changed in the code, and the steps only you can do (downloads, model choices, playtesting), each with several sources so you have a backup if the first one has nothing good.</p>
+
+<table class="toc">
+  <tr><td><b>Part A</b></td><td>What I already changed in the code</td></tr>
+  <tr><td><b>Part B</b></td><td>Your to-do list (summary)</td></tr>
+  <tr><td><b>1</b></td><td>Real sky photo (HDRI)</td></tr>
+  <tr><td><b>2</b></td><td>Photo textures for the road</td></tr>
+  <tr><td><b>3</b></td><td>Photo textures for the ground</td></tr>
+  <tr><td><b>4</b></td><td>A realistic car model</td></tr>
+  <tr><td><b>5</b></td><td>Realistic buildings and props</td></tr>
+  <tr><td><b>6</b></td><td>Converting and shrinking 3D files</td></tr>
+  <tr><td><b>7</b></td><td>Playtest and report back</td></tr>
+  <tr><td><b>8</b></td><td>Licenses and credits</td></tr>
+  <tr><td><b>Part C</b></td><td>Settings you can tweak yourself</td></tr>
+</table>
+
+<h2>Part A: What I already changed in the code</h2>
+<p>Everything below works <b>right now with no downloads</b>. Every file you add later is an optional upgrade that the game picks up automatically.</p>
+<table>
+  <tr><th style="width:24%">Fix</th><th>What changed</th><th style="width:22%">Files</th></tr>
+  <tr><td>1. Sky and lighting</td><td>The purple gradient sky is replaced by a physically based daytime atmosphere. Lighting is now image-based: everything is lit and reflected by that sky, plus one real sun. Real HDRI photo skies are used per time of day (<span class="path">public/hdri/morning.hdr</span>, <span class="path">midday.hdr</span>, <span class="path">sunset.hdr</span>); night stays generated. Underwater and space keep their own look.</td><td><span class="path">Sky.ts</span>, <span class="path">Lighting.ts</span>, <span class="path">Game.ts</span></td></tr>
+  <tr><td>2. Post-processing</td><td>Saturation, contrast, vignette and film grain are toned down to near neutral. Chromatic aberration is removed. Tone mapping exposure is 0.95 (was 1.5). Bloom now affects only real light sources. SMAA anti-aliasing replaces FXAA. Ambient occlusion (soft contact shadows) is on for strong GPUs.</td><td><span class="path">PostProcessing.ts</span>, <span class="path">Renderer.ts</span></td></tr>
+  <tr><td>3. Shadows</td><td>The single blurry shadow map over 900 × 900 m is replaced by a sharp shadow box that follows the camera, and the car now casts a real shadow.</td><td><span class="path">Lighting.ts</span>, <span class="path">Car.ts</span></td></tr>
+  <tr><td>4. Fog and haze</td><td>The purple fog is replaced by haze sampled from the sky's own horizon color, so distant things fade naturally into the sky.</td><td><span class="path">Sky.ts</span>, <span class="path">Game.ts</span></td></tr>
+  <tr><td>5. Textures</td><td>The road is lit PBR asphalt (color, normal and roughness maps) with worn white lane markings, darker tyre tracks and white edge lines. The ground is textured dry grass and dirt; mountains get rock texture. Textures are generated in code and can be replaced by photo textures.</td><td><span class="path">Textures.ts</span>, <span class="path">Track.ts</span>, <span class="path">Scenery.ts</span></td></tr>
+  <tr><td>6. Car</td><td>Real car paint (metallic base plus glossy clear coat), dark reflective glass and rubber tyres. The fake glow lights attached to the car are removed. Slot added for a realistic model (<span class="path">public/models/car_hq.glb</span>).</td><td><span class="path">Car.ts</span>, <span class="path">Game.ts</span></td></tr>
+  <tr><td>7. Buildings and props</td><td>A realism pass turns the purple retrowave colors into real-world stone, concrete and paint tones and dims neon for daytime. Office towers are now glass and steel. Neon guide posts are replaced by real white roadside posts (also fewer draw calls). The water is a dark blue-grey sea.</td><td><span class="path">Scenery.ts</span></td></tr>
+  <tr><td>Performance</td><td>Static models are merged into a few big meshes (canyon draw calls 518 → 200). On your Intel Iris Xe a frame takes 11–14 ms (about 70+ FPS) at Medium quality.</td><td><span class="path">Scenery.ts</span>, <span class="path">PostProcessing.ts</span></td></tr>
+  <tr><td>Settings menu</td><td><b>SETTINGS</b> on the menu, the ⚙ button in the race HUD, or <b>Esc</b> (pauses the race). Graphics Auto / Low / Medium / High, volume, motion blur on/off, camera near / normal / far. Saved in the browser.</td><td><span class="path">ui/Settings.ts</span>, <span class="path">main.ts</span></td></tr>
+  <tr><td>Time of day</td><td>Morning / Midday / Sunset / <b>Night</b> buttons on the menu. Clouds, sun color, shadows and haze all change. Night adds stars and a moon, lit windows, glowing street lamps with pools of light on the road, and full headlights. Hidden when you use a sky photo (step 1), because the photo fixes the sun.</td><td><span class="path">Sky.ts</span>, <span class="path">Buildings.ts</span></td></tr>
+  <tr><td>Rain</td><td><b>Clear / Rain</b> buttons on the menu. Overcast sky, falling rain, a wet shiny road with mirror-like puddles and ripples, darker ground, tyre spray, rain sound, thicker haze and headlights on. Also works with a sky photo.</td><td><span class="path">Weather.ts</span>, <span class="path">Track.ts</span></td></tr>
+  <tr><td>Car reflections</td><td>The paint and glass mirror the real buildings, trees and road around the car, not just the sky. Off on Low, refreshed ~10× a second on Medium, faster on High.</td><td><span class="path">Game.ts</span>, <span class="path">Car.ts</span></td></tr>
+  <tr><td>Trees and bushes</td><td>Code-generated palms (curved trunk, drooping fronds) and street trees (bark, branches, leafy crown) replace the cartoon models, plus bushes along the roadside.</td><td><span class="path">Trees.ts</span>, <span class="path">Vegetation.ts</span></td></tr>
+  <tr><td>Laps</td><td>Choose <b>1 / 3 / 5 laps</b> on the menu. The HUD shows the lap counter, each finished lap pops up its time (green if it's your best), and the results screen lists every lap split plus your all-time best lap. Best total time is kept separately for each race length.</td><td><span class="path">Game.ts</span>, <span class="path">main.ts</span></td></tr>
+  <tr><td>Nitro</td><td>Hold <b>Shift</b> (or N, or the N2O touch button). A 4-second tank that refills in 16 s: extra thrust, +25% top speed, blue exhaust flames, a wider field of view, stronger motion blur and a whoosh. The bar sits above the speedometer.</td><td><span class="path">Car.ts</span>, <span class="path">Audio.ts</span></td></tr>
+  <tr><td>Photo mode</td><td>Press <b>P</b> (or the 📷 button) during a race. The world freezes; fly the camera with WASD, Q/E for down/up, drag the mouse or use the arrows to look, scroll to zoom, Shift to move faster, H to hide the help. <b>SAVE PHOTO</b> or Enter downloads a PNG of the view (no HUD in the picture). P or Esc goes back to the race.</td><td><span class="path">Game.ts</span>, <span class="path">main.ts</span></td></tr>
+  <tr><td>Track (Oct 31)</td><td>The underwater section is about 2.5× longer: a dry concrete trench dives into the glass tube, then a descending <b>spiral</b> where the second pass runs under the first on steel pylons, over its own sea floor, then a long run west. A <b>vertical loop-the-loop</b> stands in the canyon in its own clear arena: the car is carried round it while a trackside camera watches.</td><td><span class="path">trackData.ts</span>, <span class="path">Track.ts</span>, <span class="path">Underwater.ts</span>, <span class="path">Game.ts</span></td></tr>
+  <tr><td>Track (Nov 1)</td><td>A <b>double vertical loop</b> under the sea inside a glass tube. The canyon's last stretch is one smooth right-hander into town (it used to zig-zag and hairpin). Under the sea: shipwreck, ruins, sea fans, branching coral, jellyfish, manta rays, a whale, bubble vents, and reef cliffs where seabeds end. In space: low-gravity <b>jump ramps</b>, <b>boost pads</b> (full nitro + speed kick) and a ring station. New start banner (printed white/navy with chequers), the lighthouse beam only at night, the Earth only in space.</td><td><span class="path">trackData.ts</span>, <span class="path">SeaLife.ts</span>, <span class="path">Scenery.ts</span>, <span class="path">Game.ts</span></td></tr>
+  <tr><td>Lunar base</td><td>The space plateau is wider and the road now sits flush on it. Generated in code: habitat domes and modules with lit windows, solar farms, a landing pad with a lander, a rocket on its launch tower, rovers, blinking comms masts and blue runway lights along the road. The purple nebula is now a faint neutral Milky Way.</td><td><span class="path">SpaceBase.ts</span>, <span class="path">Scenery.ts</span>, <span class="path">Sky.ts</span></td></tr>
+  <tr><td>Assets installed</td><td>Done for you, all CC0 from Poly Haven: road "Asphalt 02", ground "Aerial Grass Rock", morning sky "Syferfontein 18d Clear (Pure Sky)", plus your midday (Kloofendal) and sunset (Qwantani Dusk 2) skies and the Mazda RX-7 car (CC-BY, credited).</td><td><span class="path">public/</span>, <span class="path">CREDITS.md</span></td></tr>
+  <tr><td>World details</td><td>Animated sea with waves and shore foam, roadside grass, clouds, guardrails, kerbs, gravel shoulders, skid marks, and generated town buildings (shops, apartments with balconies, glass towers).</td><td><span class="path">Scenery.ts</span>, <span class="path">RoadDetails.ts</span>, <span class="path">Vegetation.ts</span>, <span class="path">Buildings.ts</span></td></tr>
+  <tr><td>Driving feel</td><td>Spring suspension (squat, dive, body roll, landing bounce), tyre smoke and skid marks in hard corners, dust off the road edge, motion blur at speed, brake lights, and an engine sound with a 6-speed gearbox plus tyre squeal, wind and gravel rumble.</td><td><span class="path">Car.ts</span>, <span class="path">SpeedEffects.ts</span>, <span class="path">Audio.ts</span></td></tr>
+</table>
+
+<h2>Part B: Your to-do list</h2>
+<p>In order of impact. Each one is optional, and the game works without all of them.</p>
+<ul class="check">
+  <li style="list-style:'☑  '"><s><b>Step 1</b>: Sky HDRIs</s>. Done: morning, midday and sunset photos are installed (only swap them if you want a different look).</li>
+  <li style="list-style:'☑  '"><s><b>Step 4</b>: Realistic car</s>. Done: the Mazda RX-7 is installed.</li>
+  <li style="list-style:'☑  '"><s><b>Step 2</b>: Road textures</s>. Done: Poly Haven "Asphalt 02".</li>
+  <li style="list-style:'☑  '"><s><b>Step 3</b>: Ground textures</s>. Done: Poly Haven "Aerial Grass Rock".</li>
+  <li><b>Step 5</b>: Replace town building/prop models one by one, as many as you want. Hours, at your own pace.</li>
+  <li><b>Step 7</b>: Play it and tell me what looks wrong or runs slowly.</li>
+  <li><b>Step 8</b>: Add a credit line for every CC-BY download.</li>
+</ul>
+<div class="box where"><b>How to see your changes:</b> open a terminal in <span class="path">claude-game</span> and run <code>npm run dev</code>, then open <a href="http://localhost:5188">http://localhost:5188</a>. After adding files, just refresh the page. No code changes needed.</div>
+
+<!-- ───────────────────────── 1. HDRI ───────────────────────── -->
+<h2 class="page-break"><span class="step">1</span>Real sky photo (HDRI)</h2>
+<p>An HDRI is a 360° photo of a real sky that stores real brightness. The game uses it as the visible sky, as the source of all reflections, and to place the sun. The sun direction and color are <b>detected automatically</b> from the brightest spot in the photo, so the shadows will match.</p>
+
+<div class="box where"><b>Already done.</b> The game ships with one photo per time of day. <b>Where they go:</b> <span class="path">claude-game/public/hdri/morning.hdr</span>, <span class="path">midday.hdr</span> and <span class="path">sunset.hdr</span>, exactly those names, <b>.hdr</b> format (not .exr, not .jpg). Night is always the generated sky. Replace one only if you want a different look. Always pick a <b>"Pure Sky"</b> version: photos with trees, hills or pylons on the horizon show them floating behind the track.</div>
+
+<h3>What to pick</h3>
+<ul>
+  <li><b>Resolution 2K</b> (about 5–8 MB). 4K looks barely better and loads slowly; 1K is blurry.</li>
+  <li><b>Clear or partly cloudy sky with a visible sun</b>, sun not straight overhead. Morning or afternoon gives nice long shadows.</li>
+  <li><b>"Pure sky"</b> versions (sky only, no ground or buildings) work best, because the game has its own ground.</li>
+  <li>Avoid indoor, night, studio or heavily overcast HDRIs, which have no clear sun.</li>
+</ul>
+
+<h3>Where to download (in order of preference)</h3>
+<table>
+  <tr><th style="width:5%">#</th><th style="width:25%">Site</th><th>Link and notes</th><th style="width:14%">License</th></tr>
+  <tr><td class="rank">1</td><td><b>Poly Haven: Skies</b></td><td><a href="https://polyhaven.com/hdris/skies">https://polyhaven.com/hdris/skies</a><br>The best free source. Click an HDRI, set the resolution to <b>2K</b> and the format to <b>HDR</b>, then Download.</td><td>CC0 (no credit needed)</td></tr>
+  <tr><td class="rank">2</td><td>Poly Haven: Sunrise/Sunset</td><td><a href="https://polyhaven.com/hdris/sunrise-sunset">https://polyhaven.com/hdris/sunrise-sunset</a><br>Golden-hour skies, closest to the original sunset mood.</td><td>CC0</td></tr>
+  <tr><td class="rank">3</td><td>ambientCG: HDRIs</td><td><a href="https://ambientcg.com/list?type=hdri">https://ambientcg.com/list?type=hdri</a><br>Pick the "2K-HDR" download (a .zip with the .hdr inside).</td><td>CC0</td></tr>
+  <tr><td class="rank">4</td><td>HDRI-Skies (free section)</td><td><a href="https://www.hdri-skies.com/free-hdris/">https://www.hdri-skies.com/free-hdris/</a><br>Sky-only HDRIs; check that the free version is .hdr.</td><td>Check each page</td></tr>
+  <tr><td class="rank">5</td><td>iHDRI</td><td><a href="https://www.ihdri.com/">https://www.ihdri.com/</a></td><td>Check each page</td></tr>
+  <tr><td class="rank">6</td><td>HDRMaps (freebies)</td><td><a href="https://hdrmaps.com/freebies/">https://hdrmaps.com/freebies/</a><br>Some free files need an account.</td><td>Check each page</td></tr>
+</table>
+
+<h3>Good ones to try first (Poly Haven)</h3>
+<ul>
+  <li>Kloofendal 48d Partly Cloudy (Pure Sky): <a href="https://polyhaven.com/a/kloofendal_48d_partly_cloudy_puresky">https://polyhaven.com/a/kloofendal_48d_partly_cloudy_puresky</a></li>
+  <li>Spruit Sunrise: <a href="https://polyhaven.com/a/spruit_sunrise">https://polyhaven.com/a/spruit_sunrise</a></li>
+  <li>Venice Sunset: <a href="https://polyhaven.com/a/venice_sunset">https://polyhaven.com/a/venice_sunset</a></li>
+</ul>
+
+<div class="box warn"><b>If it looks too dark or too bright:</b> open <span class="path">src/game/Sky.ts</span> and change <code>HDRI_GAIN = 1.0</code> (try 0.6 for darker, 1.5 for brighter). <b>If the shadows are too faint:</b> lower <code>HDRI_SUN_CLAMP</code> from 6 to 3. To go back to the built-in sky for a time of day, delete or rename that file.</div>
+
+<!-- ───────────────────────── 2. ROAD ───────────────────────── -->
+<h2 class="page-break"><span class="step">2</span>Photo textures for the road</h2>
+<p><b>Already done:</b> Poly Haven "Asphalt 02" (2K, CC0) is installed. The notes below are only for swapping in a different one.</p>
+<div class="box where"><b>Where it goes:</b> folder <span class="path">claude-game/public/textures/asphalt/</span> with three files, <b>renamed exactly</b>:
+<table>
+  <tr><th>Rename to</th><th>The file usually called…</th></tr>
+  <tr><td><code>color.jpg</code></td><td>Diffuse / Albedo / Base Color / <code>_diff_</code> / <code>_Color</code></td></tr>
+  <tr><td><code>normal.jpg</code></td><td>Normal <b>GL</b> (OpenGL) / <code>_nor_gl_</code> / <code>_NormalGL</code>. <b>Not</b> the DX/DirectX one.</td></tr>
+  <tr><td><code>roughness.jpg</code></td><td>Roughness / <code>_rough_</code> / <code>_Roughness</code></td></tr>
+</table>
+Other files (AO, displacement, metalness) aren't needed. All three must be <b>.jpg</b>; if you only get PNG, re-save as JPG in Paint or any image editor.</div>
+
+<h3>What to pick</h3>
+<ul>
+  <li><b>2K resolution</b> (2048 px). The texture repeats every ~4 m, so more isn't useful.</li>
+  <li><b>Plain, even asphalt</b>, without painted lines (the game draws its own lane markings) and without big puddles or manholes, which would repeat visibly.</li>
+</ul>
+
+<h3>Where to download</h3>
+<table>
+  <tr><th style="width:5%">#</th><th style="width:25%">Site</th><th>Link and notes</th><th style="width:14%">License</th></tr>
+  <tr><td class="rank">1</td><td><b>Poly Haven</b></td><td><a href="https://polyhaven.com/textures?s=asphalt">https://polyhaven.com/textures?s=asphalt</a><br>Try "Asphalt 02": <a href="https://polyhaven.com/a/asphalt_02">https://polyhaven.com/a/asphalt_02</a>. Choose 2K, JPG, and tick Diffuse, nor_gl and Rough.</td><td>CC0</td></tr>
+  <tr><td class="rank">2</td><td><b>ambientCG</b></td><td><a href="https://ambientcg.com/list?q=asphalt">https://ambientcg.com/list?q=asphalt</a><br>Try "Asphalt 025 A": <a href="https://ambientcg.com/view?id=Asphalt025A">https://ambientcg.com/view?id=Asphalt025A</a>. Download "2K-JPG".</td><td>CC0</td></tr>
+  <tr><td class="rank">3</td><td>cgbookcase</td><td><a href="https://www.cgbookcase.com/textures">https://www.cgbookcase.com/textures</a> (search "asphalt")</td><td>CC0</td></tr>
+  <tr><td class="rank">4</td><td>3DTextures.me</td><td><a href="https://3dtextures.me/?s=asphalt">https://3dtextures.me/?s=asphalt</a></td><td>CC0</td></tr>
+  <tr><td class="rank">5</td><td>TextureCan</td><td><a href="https://www.texturecan.com/">https://www.texturecan.com/</a> (search "asphalt")</td><td>CC0</td></tr>
+</table>
+
+<!-- ───────────────────────── 3. GROUND ───────────────────────── -->
+<h2><span class="step">3</span>Photo textures for the ground</h2>
+<p><b>Already done:</b> Poly Haven "Aerial Grass Rock" (2K, CC0) is installed. The notes below are only for swapping in a different one.</p>
+<div class="box where"><b>Where it goes:</b> <span class="path">claude-game/public/textures/ground/</span>, with the same three names: <code>color.jpg</code>, <code>normal.jpg</code>, <code>roughness.jpg</code>.</div>
+<ul>
+  <li>Pick something that <b>tiles well from far away</b>: short grass, dry grass, grass mixed with dirt, or coastal sand with grass. Avoid textures with flowers, big rocks or leaves, which repeat obviously.</li>
+  <li>The color repeats every 40 m, so a texture shot from above ("aerial") looks best.</li>
+</ul>
+<table>
+  <tr><th style="width:5%">#</th><th style="width:25%">Site</th><th>Link and notes</th><th style="width:14%">License</th></tr>
+  <tr><td class="rank">1</td><td><b>Poly Haven</b></td><td>Try "Aerial Grass Rock": <a href="https://polyhaven.com/a/aerial_grass_rock">https://polyhaven.com/a/aerial_grass_rock</a>. Also search: <a href="https://polyhaven.com/textures?s=grass">https://polyhaven.com/textures?s=grass</a></td><td>CC0</td></tr>
+  <tr><td class="rank">2</td><td><b>ambientCG</b></td><td><a href="https://ambientcg.com/list?q=grass">https://ambientcg.com/list?q=grass</a> (also try searching "ground")</td><td>CC0</td></tr>
+  <tr><td class="rank">3</td><td>cgbookcase</td><td><a href="https://www.cgbookcase.com/textures">https://www.cgbookcase.com/textures</a> (search "grass" or "ground")</td><td>CC0</td></tr>
+  <tr><td class="rank">4</td><td>3DTextures.me</td><td><a href="https://3dtextures.me/?s=grass">https://3dtextures.me/?s=grass</a></td><td>CC0</td></tr>
+</table>
+
+<!-- ───────────────────────── 4. CAR ───────────────────────── -->
+<h2 class="page-break"><span class="step">4</span>A realistic car model</h2>
+<p><b>Already done:</b> your Mazda RX-7 (Anokino, CC-BY, credited) is installed; its wheels and lamps are found automatically. The notes below are for swapping in another car.</p>
+<div class="box where"><b>Where it goes:</b> <span class="path">claude-game/public/models/car_hq.glb</span>. If that file exists, the game uses it instead of the old car; delete it to go back. The game automatically scales it to 4.5 m long, turns it to face forward and puts it on the road.</div>
+
+<h3>Requirements (check before downloading)</h3>
+<table>
+  <tr><th style="width:30%">Requirement</th><th>Why</th></tr>
+  <tr><td><b>Format: .glb or .gltf</b></td><td>That's what the game loads. If you only get .fbx, .obj or .blend, convert it (see Step 6).</td></tr>
+  <tr><td><b>File size under ~20 MB</b> (ideally under 10)</td><td>Big files load slowly in the browser. Step 6 shows how to shrink them.</td></tr>
+  <tr><td><b>20k–150k triangles</b></td><td>Enough detail to look real, light enough for your laptop GPU. Sketchfab shows the triangle count on each model page.</td></tr>
+  <tr><td><b>Separate wheels, named with "wheel"</b></td><td>Needed for the wheels to spin and steer. Front wheels should also contain "front", "FL" or "FR" in their names. Without this the car still drives; the wheels just won't turn.</td></tr>
+  <tr><td><b>PBR materials / textures included</b></td><td>The game keeps a realistic model's own materials (paint, chrome, glass) instead of repainting it.</td></tr>
+  <tr><td><b>License allows use</b></td><td>CC0 or CC-BY are best. Don't use "editorial only" models or anything with a real brand logo if you plan to publish the game.</td></tr>
+</table>
+
+<h3>Where to download (in order of preference)</h3>
+<table>
+  <tr><th style="width:5%">#</th><th style="width:22%">Site</th><th>Link and notes</th></tr>
+  <tr><td class="rank">1</td><td><b>Sketchfab</b></td><td><a href="https://sketchfab.com/search?features=downloadable&amp;q=car&amp;type=models">https://sketchfab.com/search?features=downloadable&amp;q=car&amp;type=models</a><br>Biggest free selection. Needs a free account. Filter: <b>Downloadable</b>, License: <b>CC Attribution</b> or <b>CC0</b>. On the model page click Download and choose <b>"glTF"</b> or <b>"GLB"</b> (auto-converted). Search terms that work well: "sports car", "low poly car realistic", "game ready car", "supercar", "retro car".</td></tr>
+  <tr><td class="rank">2</td><td>CGTrader (free)</td><td><a href="https://www.cgtrader.com/free-3d-models/car">https://www.cgtrader.com/free-3d-models/car</a><br>Many good free cars, often .fbx/.obj, so you may need Step 6. Check the license on each page.</td></tr>
+  <tr><td class="rank">3</td><td>Fab (Epic Games)</td><td><a href="https://www.fab.com/">https://www.fab.com/</a><br>Search "car", filter <b>Free</b>. Includes the old Sketchfab store; formats vary.</td></tr>
+  <tr><td class="rank">4</td><td>Free3D</td><td><a href="https://free3d.com/3d-models/car">https://free3d.com/3d-models/car</a><br>Quality varies a lot; mostly .obj/.fbx/.blend.</td></tr>
+  <tr><td class="rank">5</td><td>TurboSquid (free)</td><td><a href="https://www.turbosquid.com/Search/3D-Models/free/car">https://www.turbosquid.com/Search/3D-Models/free/car</a><br>Some free high-quality cars; mostly .fbx/.max.</td></tr>
+  <tr><td class="rank">6</td><td>BlenderKit</td><td><a href="https://www.blenderkit.com/">https://www.blenderkit.com/</a><br>Works inside Blender (free plan has many models); export as .glb from Blender.</td></tr>
+</table>
+
+<div class="box warn"><b>After adding it, tell me:</b> if the car faces sideways, floats, is the wrong size, or its wheels don't spin, send me the model's link or file name and I'll adjust the loader for it. Wheel naming differs between models, and that's a quick fix on my side.</div>
+
+<!-- ───────────────────────── 5. BUILDINGS ───────────────────────── -->
+<h2 class="page-break"><span class="step">5</span>Realistic buildings and props</h2>
+<div class="box warn"><b>Important: the town buildings are now generated in code.</b> Shops, apartment blocks and towers (the <code>town_shop / store / diner / kiosk / awning / tower2</code>, <code>building</code>, <code>skyscraper</code> and <code>house</code> slots below) come from <span class="path">src/game/Buildings.ts</span>, so downloaded files with those names are <b>ignored</b> until you open <span class="path">src/game/Scenery.ts</span> and change <code>USE_PROCEDURAL_BUILDINGS = true</code> to <code>false</code>. The same goes for <code>palm.glb</code> and <code>town_tree.glb</code>: they are generated by <span class="path">src/game/Trees.ts</span> until you set <code>USE_PROCEDURAL_TREES = false</code> in the same file. Every other model in the table (lamps, signs, vans, benches, cliffs…) is used straight from the file.</div>
+<p>The rest of the scenery uses free low-poly models in <span class="path">claude-game/public/models/</span>. To upgrade one, <b>replace the file with a new .glb of the same name</b>. The game scales each model to the right height and places it automatically, so the new model doesn't need to match the old one's size. Rename the old file first (for example <code>town_shop_old.glb</code>) so you can go back.</p>
+
+<h3>Which file is which (most visible first)</h3>
+<table>
+  <tr><th style="width:28%">File</th><th>What it is in the game</th><th style="width:28%">Search for</th></tr>
+  <tr><td><code>town_shop.glb</code>, <code>town_store.glb</code>, <code>town_diner.glb</code>, <code>town_kiosk.glb</code></td><td>Row of shops right next to the road in town</td><td>"storefront", "shop building", "american diner"</td></tr>
+  <tr><td><code>house.glb</code></td><td>Houses along town streets</td><td>"suburban house", "house game ready"</td></tr>
+  <tr><td><code>building.glb</code>, <code>skyscraper.glb</code>, <code>town_tower2.glb</code></td><td>Bigger buildings and the far skyline</td><td>"apartment building", "office building", "skyscraper low poly realistic"</td></tr>
+  <tr><td><code>palm.glb</code>, <code>town_tree.glb</code></td><td>Palm trees on the coast, street trees</td><td>"palm tree", "street tree"</td></tr>
+  <tr><td><code>streetlight.glb</code>, <code>town_lamp2.glb</code></td><td>Street lamps</td><td>"street lamp", "street light"</td></tr>
+  <tr><td><code>town_traffic.glb</code>, <code>town_sign.glb</code>, <code>town_billboard.glb</code></td><td>Traffic lights, road signs, billboards</td><td>"traffic light", "road sign", "billboard"</td></tr>
+  <tr><td><code>town_van.glb</code></td><td>Parked vans</td><td>"van", "parked car"</td></tr>
+  <tr><td><code>town_bench.glb</code>, <code>town_crate.glb</code>, <code>town_fence.glb</code></td><td>Small roadside props</td><td>"bench", "crate", "fence"</td></tr>
+  <tr><td><code>town_pier.glb</code>, <code>town_boat.glb</code></td><td>Pier and boats on the coast</td><td>"wooden pier", "fishing boat"</td></tr>
+  <tr><td><code>cliff.glb</code>, <code>mountain.glb</code>, <code>rock.glb</code></td><td>Canyon walls, horizon mountains, rocks</td><td>"cliff photogrammetry", "rock scan", "mountain"</td></tr>
+  <tr><td><code>rocket.glb</code>, <code>satellite.glb</code></td><td>Space biome (stylized, can stay as is)</td><td>(optional)</td></tr>
+</table>
+
+<h3>Where to download</h3>
+<table>
+  <tr><th style="width:5%">#</th><th style="width:22%">Site</th><th>Link and notes</th></tr>
+  <tr><td class="rank">1</td><td><b>Poly Haven: Models</b></td><td><a href="https://polyhaven.com/models">https://polyhaven.com/models</a><br>Photo-real props, rocks, trees, benches, lamps. CC0, and there's a direct glTF download.</td></tr>
+  <tr><td class="rank">2</td><td><b>Sketchfab</b></td><td><a href="https://sketchfab.com/search?features=downloadable&amp;q=building&amp;type=models">https://sketchfab.com/search?features=downloadable&amp;q=building&amp;type=models</a><br>Change "building" in the link to any search term from the table above. Download as GLB.</td></tr>
+  <tr><td class="rank">3</td><td>Fab (Epic Games)</td><td><a href="https://www.fab.com/">https://www.fab.com/</a> (filter <b>Free</b>; includes Quixel Megascans rocks/cliffs)</td></tr>
+  <tr><td class="rank">4</td><td>CGTrader (free)</td><td><a href="https://www.cgtrader.com/free-3d-models">https://www.cgtrader.com/free-3d-models</a></td></tr>
+  <tr><td class="rank">5</td><td>BlenderKit</td><td><a href="https://www.blenderkit.com/">https://www.blenderkit.com/</a> (via Blender, then export .glb)</td></tr>
+  <tr><td class="rank">6</td><td>Kenney / Quaternius</td><td><a href="https://kenney.nl/assets">https://kenney.nl/assets</a> · <a href="https://quaternius.com/">https://quaternius.com/</a><br>Not realistic (clean low-poly), but CC0 and lightweight. A good fallback if a realistic model is too heavy.</td></tr>
+</table>
+
+<div class="box warn"><b>Performance warning:</b> buildings are repeated many times along the road. Keep each building file <b>under ~2 MB and ~20k triangles</b> (shrink with Step 6). Replace a few at a time and check the game still runs smoothly before doing more.</div>
+
+<!-- ───────────────────────── 6. CONVERT ───────────────────────── -->
+<h2 class="page-break"><span class="step">6</span>Converting and shrinking 3D files</h2>
+
+<h3>A. Check a model before using it (30 seconds)</h3>
+<p>Drag the .glb onto <a href="https://gltf-viewer.donmccurdy.com/">https://gltf-viewer.donmccurdy.com/</a>. You'll see whether it looks right and how big it is. Open the "Scene" panel to read node names (to check the car's wheels are called "wheel…").</p>
+
+<h3>B. Shrink a big .glb (easiest, in the browser)</h3>
+<ol>
+  <li>Open <a href="https://gltf.report/">https://gltf.report/</a> and drop the .glb in.</li>
+  <li>Open the "Script" tab and run the default optimize script (or one that uses <code>draco()</code> and <code>textureCompress</code>).</li>
+  <li>Click Export and save. The game already supports Draco-compressed files.</li>
+</ol>
+
+<h3>C. Shrink with one command (if you have Node.js; you do)</h3>
+<pre>npx @gltf-transform/cli optimize input.glb car_hq.glb --compress draco --texture-compress webp --texture-size 2048</pre>
+<p class="small">Docs: <a href="https://gltf-transform.dev/">https://gltf-transform.dev/</a>. This usually cuts file size by 5–20×.</p>
+
+<h3>D. Convert .fbx / .obj / .blend to .glb (Blender, free)</h3>
+<ol>
+  <li>Install Blender: <a href="https://www.blender.org/download/">https://www.blender.org/download/</a></li>
+  <li>File → New → General, select and delete the default cube (X key).</li>
+  <li>File → Import → FBX / Wavefront (.obj) (for .blend files just open them).</li>
+  <li>For a car: in the Outliner (top right), rename the 4 wheel objects to <code>wheel_FL</code>, <code>wheel_FR</code>, <code>wheel_RL</code>, <code>wheel_RR</code> (front-left, front-right, rear-left, rear-right).</li>
+  <li>File → Export → glTF 2.0. Format: <b>glTF Binary (.glb)</b>; under Data → Compression tick it for Draco. Export.</li>
+</ol>
+
+<!-- ───────────────────────── 7. PLAYTEST ───────────────────────── -->
+<h2><span class="step">7</span>Playtest and report back</h2>
+<p>I could check screenshots and frame timing in my browser, but only you can tell how it feels on your screen. Run <code>npm run dev</code> in <span class="path">claude-game</span> and drive a full lap. The easiest way to compare quality levels is the in-game <b>SETTINGS</b> menu (Graphics: Auto / Low / Medium / High). The URLs below do the same thing for quick testing.</p>
+<table>
+  <tr><th style="width:36%">URL to open</th><th>What it does</th></tr>
+  <tr><td><a href="http://localhost:5188">http://localhost:5188</a></td><td>Normal. Uses whatever you picked in Settings; Auto = Medium on your Intel GPU.</td></tr>
+  <tr><td><a href="http://localhost:5188/?hq">http://localhost:5188/?hq</a></td><td>Makes Auto pick High (ambient occlusion + 4K shadows). Only applies when Settings → Graphics is Auto.</td></tr>
+  <tr><td><a href="http://localhost:5188/?lowfx">http://localhost:5188/?lowfx</a></td><td>Makes Auto pick Low. Only applies when Settings → Graphics is Auto.</td></tr>
+  <tr><td><a href="http://localhost:5188/?skipcountdown">http://localhost:5188/?skipcountdown</a></td><td>Skip the 3-2-1 countdown (combine: <code>?hq&amp;skipcountdown</code>)</td></tr>
+</table>
+<p><b>Tell me about any of these:</b></p>
+<ul class="check">
+  <li>Stutter or low frame rate: where on the track, and at which Graphics setting</li>
+  <li>Driving feel: too much or too little body roll, bounce, smoke, skid marks or motion blur</li>
+  <li>Sound: engine too loud or quiet, gear shifts, tyre squeal, wind, rain</li>
+  <li>Night and rain: too dark or bright, puddles, rain streaks, lamp glow</li>
+  <li>Nitro: too strong or weak, tank too short or long, flames visible enough</li>
+  <li>Photo mode: camera speed, mouse look sensitivity</li>
+  <li>Flickering or crawling shadows or textures (especially on the road)</li>
+  <li>Anything still purple, neon or cartoonish that bothers you</li>
+  <li>Too bright, too dark, too foggy, or washed-out colors</li>
+  <li>The car: size, height, color, wheels</li>
+  <li>Problems after adding an HDRI, texture or model (also press F12 → Console and copy any red errors)</li>
+</ul>
+
+<!-- ───────────────────────── 8. LICENSES ───────────────────────── -->
+<h2><span class="step">8</span>Licenses and credits</h2>
+<ul>
+  <li><b>CC0</b> (Poly Haven, ambientCG, cgbookcase, Kenney, Quaternius): no credit required.</li>
+  <li><b>CC-BY</b> (many Sketchfab models): you <b>must</b> credit the author in any published version. Add a line to <span class="path">claude-game/public/models/CREDITS.md</span> with the file name, the model page link, the author and "CC-BY".</li>
+  <li>Avoid models marked <b>"Editorial"</b>, <b>"NonCommercial (NC)"</b> or <b>"NoDerivatives (ND)"</b> if you might ever publish or sell the game.</li>
+  <li>The current models already include CC-BY ones; their credits are listed in <span class="path">CREDITS.md</span>.</li>
+</ul>
+
+<!-- ───────────────────────── C. KNOBS ───────────────────────── -->
+<h2>Part C: Settings you can tweak yourself</h2>
+<p>Graphics quality, volume, motion blur, camera distance and time of day are now in the in-game menu. The settings below are one-line code edits; save the file and the dev server reloads instantly.</p>
+<table>
+  <tr><th style="width:30%">What</th><th style="width:30%">File and setting</th><th>Notes</th></tr>
+  <tr><td>Car color</td><td><span class="path">src/game/Car.ts</span> → <code>CAR_PAINT_COLOR</code></td><td>Hex color, e.g. <code>0x0d2a6b</code> blue, <code>0x111111</code> black, <code>0xb0b4b8</code> silver. Only for the built-in car.</td></tr>
+  <tr><td>Time-of-day presets</td><td><span class="path">src/game/Sky.ts</span> → <code>TIME_OF_DAY</code></td><td>Sun height in degrees for Morning (17), Midday (50) and Sunset (4).</td></tr>
+  <tr><td>Cloud cover</td><td><span class="path">src/game/Sky.ts</span> → <code>CLOUD_COVER</code></td><td>0 = clear sky, 0.55 = now, 1 = heavy clouds.</td></tr>
+  <tr><td>Generated vs. downloaded buildings</td><td><span class="path">src/game/Scenery.ts</span> → <code>USE_PROCEDURAL_BUILDINGS</code></td><td><code>true</code> = code-generated town (now); <code>false</code> = use the .glb files in <span class="path">public/models/</span>.</td></tr>
+  <tr><td>Grass amount</td><td><span class="path">src/game/Scenery.ts</span> → <code>new Vegetation(this.track)</code></td><td>Add a density, e.g. <code>new Vegetation(this.track, 0.5)</code> for half, <code>1.5</code> for more.</td></tr>
+  <tr><td>Tyre smoke amount</td><td><span class="path">src/game/SpeedEffects.ts</span> → <code>grip * speed * dt * 0.9</code></td><td>Raise 0.9 for more smoke, lower for less.</td></tr>
+  <tr><td>Nitro strength and tank</td><td><span class="path">src/game/Car.ts</span> → <code>dt / 4</code>, <code>dt / 16</code>, <code>1.25</code>, <code>22</code> in <code>update</code></td><td>Tank lasts 4 s and refills in 16 s; 1.25 = +25% top speed; 22 = extra thrust.</td></tr>
+  <tr><td>Generated vs. downloaded trees</td><td><span class="path">src/game/Scenery.ts</span> → <code>USE_PROCEDURAL_TREES</code></td><td><code>false</code> = use <code>palm.glb</code> / <code>town_tree.glb</code> instead.</td></tr>
+  <tr><td>Rain haze and night brightness</td><td><span class="path">src/game/Game.ts</span> → <code>surfaceFog</code> and <code>toneMappingExposure</code> in <code>applySkyLighting</code></td><td>Rain fog 0.0026; night exposure 1.3 (raise to brighten night).</td></tr>
+  <tr><td>Suspension stiffness</td><td><span class="path">src/game/Car.ts</span> → <code>K</code> and <code>C</code> in <code>stepSprings</code></td><td>K = 140 stiffness (higher = less body movement), C = 15 damping (higher = less bounce).</td></tr>
+  <tr><td>Sky brightness</td><td><span class="path">src/game/Sky.ts</span> → <code>PROCEDURAL_GAIN</code> / <code>HDRI_GAIN</code></td><td>Lower = darker, bluer sky.</td></tr>
+  <tr><td>Haze / fog amount</td><td><span class="path">src/game/Game.ts</span> → <code>surfaceFog</code></td><td>Now set per weather in <code>applySkyLighting</code> → <code>surfaceFog</code> (clear 0.0008).</td></tr>
+  <tr><td>Overall exposure</td><td><span class="path">src/engine/Renderer.ts</span> → <code>toneMappingExposure</code></td><td>0.95 now; 0.8–1.2 is the sensible range.</td></tr>
+  <tr><td>Color punch</td><td><span class="path">src/engine/PostProcessing.ts</span> → <code>uSaturation</code>, <code>uContrast</code></td><td>1.0 = neutral. The old values were 1.32 / 1.06.</td></tr>
+  <tr><td>Sun strength</td><td><span class="path">src/game/Lighting.ts</span> → <code>sunIntensity</code> in <code>DAY_RIG</code></td><td>3.4 now. Higher = harsher light and darker shadows by contrast.</td></tr>
+  <tr><td>Shadow sharpness vs. reach</td><td><span class="path">src/game/Lighting.ts</span> → <code>SHADOW_RADIUS</code></td><td>75 m now. Smaller = sharper but shadows end closer to the camera.</td></tr>
+</table>
+
+<p class="small" style="margin-top:8mm">Generated for the claude-game version of Horizon Drive. All links were checked when this guide was written; sites sometimes rename pages, so if a link breaks use the site's own search.</p>
+</body>
+</html>

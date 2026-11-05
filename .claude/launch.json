@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "horizon-drive",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 5188,
+      "cwd": "C:\\Users\\sm091\\Downloads\\ONGOING-PROJECTS\\3d-game\\claude-game"
+    }
+  ]
+}
