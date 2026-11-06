@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import type { Track, ZoneName } from './Track'
 import { FLIGHT_ZONES } from './trackData'
+import { props } from './biomes/Props'
 import { canvasTexture, instanced, lumpy, puffTexture, rightAt, rng, trs, zoneIndices } from './biomes/kit'
 import type { SfxName } from './Sfx'
 
@@ -15,6 +16,8 @@ interface FlourishFrame {
 }
 
 const SPLASH = 26
+/** Metres, nose to tail. */
+const WHALE_LENGTH = 58
 const BIRDS = 44
 const FLYERS = 46
 const ROCKS = 70
@@ -44,6 +47,11 @@ export class Flourish {
   private diveIdx = -1
   private dived = false
 
+  private readonly whale = new THREE.Group()
+  private readonly whaleU = { uTime: { value: 0 }, uHalf: { value: WHALE_LENGTH / 2 } }
+  private seaRun: number[] = []
+  private whaleT = -1
+
   private rocks!: THREE.InstancedMesh
   private readonly rockSeed: { p: THREE.Vector3; s: number; a: THREE.Vector3; w: number }[] = []
 
@@ -61,6 +69,7 @@ export class Flourish {
     this.buildRings()
     this.buildPortals()
     this.buildSplash()
+    this.buildWhale()
     this.buildRocks()
     this.buildBirds()
     this.buildCity(skipBoard)
@@ -98,6 +107,8 @@ export class Flourish {
     const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), tg)
     return new THREE.Matrix4().compose(this.v.set(p.x + right.x * r.lat, p.y + 0.8, p.z + right.z * r.lat), q, new THREE.Vector3(1, 1, 1))
   }
+
+  get ringCount(): number { return this.rings.length }
 
   resetRings(): void {
     this.rings.forEach((r, k) => { r.hit = false; this.ringMesh.setMatrixAt(k, this.ringMatrix(r)) })
@@ -194,6 +205,58 @@ export class Flourish {
       ;(s.material as THREE.SpriteMaterial).opacity = 0.75 * (1 - t / life)
       if (t >= life) s.visible = false
     }
+  }
+
+  // ── under the sea: a whale the size of a city block ──
+  private buildWhale(): void {
+    const ids = zoneIndices(this.track, 'underwater')
+    this.seaRun = ids.slice(Math.floor(ids.length * 0.76), Math.floor(ids.length * 0.97))
+    this.whale.visible = false
+    this.group.add(this.whale)
+    // shaped from the scanned statue: its body swims by a shader, so no rig to go wrong
+    void props.load('bronze_whale_statue').then((parts) => {
+      if (!parts?.length) return
+      const box = new THREE.Box3()
+      for (const p of parts) { p.geometry.computeBoundingBox(); box.union(p.geometry.boundingBox!) }
+      const size = box.getSize(new THREE.Vector3()), c = box.getCenter(new THREE.Vector3())
+      const m = new THREE.Matrix4().makeTranslation(-c.x, -c.y, -c.z)
+      // lay its longest axis along z
+      if (size.x >= size.z && size.x >= size.y) m.premultiply(new THREE.Matrix4().makeRotationY(Math.PI / 2))
+      else if (size.y >= size.z) m.premultiply(new THREE.Matrix4().makeRotationX(Math.PI / 2))
+      const k = WHALE_LENGTH / Math.max(size.x, size.y, size.z)
+      m.premultiply(new THREE.Matrix4().makeScale(k, k, k))
+      for (const p of parts) {
+        const src = p.material as THREE.MeshStandardMaterial
+        const mat = new THREE.MeshStandardMaterial({ color: 0x33475a, normalMap: src.normalMap, roughness: 0.5, metalness: 0.05, emissive: 0x0b2a33, emissiveIntensity: 0.6 })
+        mat.onBeforeCompile = (s) => {
+          Object.assign(s.uniforms, this.whaleU)
+          s.vertexShader = s.vertexShader
+            .replace('#include <common>', '#include <common>\nuniform float uTime, uHalf;')
+            .replace('#include <begin_vertex>', `#include <begin_vertex>
+              float along = position.z / uHalf * WHALE_TAIL;
+              float bend = pow(clamp(along * 0.5 + 0.5, 0.0, 1.0), 2.2);
+              transformed.y += sin(along * 2.4 - uTime * 1.5) * bend * uHalf * 0.13;`.replace('WHALE_TAIL', '1.0'))
+        }
+        const mesh = new THREE.Mesh(p.geometry.clone().applyMatrix4(m), mat)
+        mesh.frustumCulled = false
+        this.whale.add(mesh)
+      }
+    })
+  }
+
+  /** It keeps pace beside the road, close enough to fill the side of the view. */
+  private updateWhale(f: FlourishFrame): void {
+    const ids = this.seaRun, first = ids[0]!, last = ids[ids.length - 1]!
+    if (f.idx < first - 40 || f.idx > last) { this.whaleT = -1; this.whale.visible = false; return }
+    if (this.whaleT < 0) { this.whaleT = 0; f.sfx('whale', 1, 0) }
+    this.whaleT += f.dt
+    this.whale.visible = true
+    this.whaleU.uTime.value = f.time % 1000
+    const t = this.track
+    const i = f.idx + Math.round(52 - this.whaleT * 12)
+    const p = t.samples[i]!, tg = t.tangents[i]!, r = rightAt(t, i)
+    this.whale.position.set(p.x + r.x * 44, Math.min(p.y + 19, -8) + Math.sin(this.whaleT * 0.7), p.z + r.z * 44)
+    this.whale.rotation.y = Math.atan2(-tg.x, -tg.z)
   }
 
   // ── moon: asteroids well clear of the road ──
@@ -336,6 +399,7 @@ export class Flourish {
     this.resetRings()
     this.birdNext = 0
     this.dived = false
+    this.whaleT = -1
   }
 
   update(f: FlourishFrame, flying: boolean): void {
@@ -348,6 +412,8 @@ export class Flourish {
     })
     this.portals.instanceMatrix.needsUpdate = true
     this.updateSplash(f)
+    if (z === 'underwater') this.updateWhale(f)
+    else this.whale.visible = false
     this.rocks.visible = z === 'space' || z === 'flight1' || z === 'flight2'
     if (this.rocks.visible) this.updateRocks(f.time)
     this.birds.visible = z === 'jungle'

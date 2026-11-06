@@ -921,3 +921,33 @@ html, body {
 @media (max-width: 700px) { #end-screen { justify-content: center; padding-right: 0; } .end-vignette { background: rgba(6, 8, 18, 0.7); } }
 .logo-horizon { background: linear-gradient(180deg, #ffffff 8%, #ffd0e6 48%, #ff3b6b 100%); -webkit-background-clip: text; background-clip: text; filter: drop-shadow(0 0 22px rgba(255, 50, 110, 0.55)); }
 .logo-drive { color: #4fe3ff; letter-spacing: 0.34em; text-shadow: 0 0 16px rgba(79, 227, 255, 0.7); }
+
+/* ── Paint picker and results extras ── */
+.paint-picker { display: flex; gap: 8px; }
+.paint-btn { width: 26px; height: 26px; padding: 0; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.25); background: var(--paint); cursor: pointer; }
+.paint-btn:hover:not(:disabled) { border-color: #fff; }
+.paint-btn[aria-checked="true"] { border-color: #fff; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.35); }
+.paint-btn:disabled { cursor: not-allowed; opacity: 0.3; }
+.end-unlocks { color: #7dffa0; font-size: 13px; font-weight: 700; letter-spacing: 0.08em; margin: 8px 0 0; text-align: center; }
+.end-extra { display: grid; grid-template-columns: auto 1fr; gap: 22px; margin: 12px 0; font-size: 13px; text-align: left; }
+.end-head { color: rgba(255, 255, 255, 0.6); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 4px; }
+.end-board { margin: 0; padding-left: 18px; color: rgba(255, 255, 255, 0.85); }
+.end-board .now { color: #ffcf4a; font-weight: 700; }
+.end-goals { margin: 0; padding: 0; list-style: none; color: rgba(255, 255, 255, 0.55); }
+.end-goals li::before { content: '○ '; }
+.end-goals li.done { color: #7dffa0; }
+.end-goals li.done::before { content: '● '; }
+@media (max-width: 640px), (max-height: 760px) { .end-goals { display: none; } .end-extra { grid-template-columns: 1fr; } }
+
+/* The results must always fit: tighten everything and scroll as a last resort */
+.end-content { max-height: 100vh; max-height: 100dvh; overflow-y: auto; padding-top: 18px; padding-bottom: 18px; scrollbar-width: none; }
+.end-content::-webkit-scrollbar { display: none; }
+@media (max-height: 820px) {
+  .end-title { font-size: 40px; margin-bottom: 2px; }
+  .end-times { margin: 6px 0; gap: 2px; }
+  .end-laps { margin: 4px 0; }
+  .end-unlocks { margin-top: 4px; font-size: 12px; }
+  .end-extra { margin: 6px 0; }
+  .end-buttons { margin-top: 6px; }
+}
+@media (max-height: 800px) { .end-content { zoom: 0.9; } }

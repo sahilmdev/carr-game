@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { props } from './Props'
 import type { Biome, BuildCtx, FrameCtx, BiomeEvents } from './types'
 import type { TerrainField } from './Terrain'
 import type { Track } from '../Track'
@@ -50,6 +51,28 @@ export class Canyon implements Biome {
       this.addSlide(b[Math.floor(b.length * 0.86)]!, -0.4, 10, 'ROCKSLIDE  GO LEFT')
     }
     if (a.length > 60) this.buildSplit(ctx)
+    this.useScannedRock()
+  }
+
+  /** Swap the stand-in rocks for a real scanned boulder as soon as it loads. */
+  private useScannedRock(): void {
+    void props.load('namaqualand_boulder_05').then((parts) => {
+      const part = parts?.[0]
+      if (!part) return
+      const geo = part.geometry.clone()
+      geo.computeBoundingBox()
+      const box = geo.boundingBox!, c = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3())
+      geo.translate(-c.x, -c.y, -c.z)
+      const k = 2.2 / Math.max(size.x, size.y, size.z)
+      geo.scale(k, k, k)
+      const mat = (part.material as THREE.MeshStandardMaterial).clone()
+      mat.color.multiply(new THREE.Color(1.15, 0.72, 0.56)) // canyon sandstone
+      for (const s of this.slides) for (const r of s.rocks) {
+        r.m.geometry = geo
+        r.m.material = mat
+        r.m.rotation.set(this.rand() * 6, this.rand() * 6, this.rand() * 6)
+      }
+    })
   }
 
   private addSlide(i: number, lat0: number, lat1: number, text: string | null): void {

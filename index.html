@@ -48,6 +48,9 @@
             <button class="tod-btn" data-laps="5" role="radio">5</button>
           </div>
         </div>
+        <div class="opt-row"><span class="opt-label">Paint</span>
+          <div id="paint-picker" class="paint-picker" role="radiogroup" aria-label="Car paint"></div>
+        </div>
         <div class="opt-row"><span class="opt-label">Ghost car</span>
           <div id="ghost-picker" class="tod-picker" role="radiogroup" aria-label="Ghost car">
             <button class="tod-btn" data-ghost="on" role="radio">On</button>
@@ -135,6 +138,17 @@
         </div>
       </div>
       <div id="end-laps" class="end-laps"></div>
+      <div id="end-unlocks" class="end-unlocks"></div>
+      <div class="end-extra">
+        <div>
+          <div class="end-head">Your top 5</div>
+          <ol id="end-board" class="end-board"></ol>
+        </div>
+        <div>
+          <div class="end-head">Challenges <span id="end-count"></span></div>
+          <ul id="end-goals" class="end-goals"></ul>
+        </div>
+      </div>
       <div class="end-buttons">
         <button id="retry-btn" class="start-button"><span class="start-label">Race again</span></button>
         <button id="end-exit-btn" class="end-exit">EXIT TO MENU</button>

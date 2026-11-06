@@ -119,7 +119,7 @@ export class Props {
   }
 
   /** One merged geometry per material, in the model's own (metre) units. */
-  private load(name: PropName): Promise<THREE.Mesh[] | null> {
+  load(name: PropName): Promise<THREE.Mesh[] | null> {
     let p = this.cache.get(name)
     if (!p) {
       const url = name.startsWith('dt:')
@@ -194,6 +194,7 @@ export function at(x: number, y: number, z: number, yaw: number, s = 1, tilt = 0
 
 /** Triangle budget per model after simplification (default 6000). */
 const TRI_BUDGET: Partial<Record<PropName, number>> = {
+  bronze_whale_statue: 20000,
   'dt:Building_Large_2': 60000, 'dt:Building_Medium_2_001': 60000, 'dt:Building_Small_1': 60000,
   dutch_ship_medium: 30000, modular_wooden_pier: 12000, coastal_cliff_01: 16000, treasure_chest: 6000, cannon_01: 6000,
   quiver_tree_01: 22000, quiver_tree_02: 16000, othonna_cerarioides: 18000, pachira_aquatica_01: 16000,

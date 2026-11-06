@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import type { Biome, BiomeEvents, BuildCtx, FrameCtx } from './types'
 import type { TerrainField } from './Terrain'
 import type { Track } from '../Track'
@@ -29,6 +30,8 @@ export class Stadium implements Biome {
   private nextShell = 0
   private screen: { c: HTMLCanvasElement; tex: THREE.CanvasTexture } | null = null
   private cheered = false
+  private crowd: THREE.InstancedMesh | null = null
+  private readonly crowdU = { uTime: { value: 0 }, uExcite: { value: 0.25 } }
 
   constructor(private readonly track: Track) {}
 
@@ -55,8 +58,9 @@ export class Stadium implements Biome {
           const tall = q * 1.25 + 3
           concrete.push(trs(p.x + r.x * lat, y + 0.1 - tall / 2, p.z + r.z * lat, yaw, new THREE.Vector3(2.1, tall, 5.4)))
           for (let f = 0; f < 3; f++) {
-            const x = p.x + r.x * lat + tg.x * (f - 1) * 1.4, z = p.z + r.z * lat + tg.z * (f - 1) * 1.4
-            fans.push(trs(x, y + 0.75 + this.rand() * 0.25, z, yaw))
+            const x = p.x + r.x * lat + tg.x * (f - 1) * 1.5 + (this.rand() - 0.5) * 0.5, z = p.z + r.z * lat + tg.z * (f - 1) * 1.5 + (this.rand() - 0.5) * 0.5
+            // facing the track, a little different in height
+            fans.push(trs(x, y + 0.1, z, yaw + (side > 0 ? -Math.PI / 2 : Math.PI / 2) + (this.rand() - 0.5) * 0.7, 0.92 + this.rand() * 0.2))
             fanCol.push(new THREE.Color(shirts[Math.floor(this.rand() * shirts.length)]!))
             if (this.rand() < 0.1) seats.push(new THREE.Vector3(x, y + 1.3, z))
           }
@@ -64,7 +68,9 @@ export class Stadium implements Biome {
       }
     }
     this.group.add(instanced(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ color: 0x3a3f4d, roughness: 0.8 }), concrete))
-    this.group.add(instanced(new THREE.BoxGeometry(0.62, 1.15, 0.5), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8 }), fans, fanCol, false))
+    this.crowd = instanced(fanGeometry(), this.crowdMaterial(), fans, fanCol, false)
+    this.crowd.frustumCulled = false
+    this.group.add(this.crowd)
 
     const dot = softDot()
     for (let k = 0; k < SHUTTERS; k++) {
@@ -92,6 +98,33 @@ export class Stadium implements Biome {
     this.confetti = new THREE.Points(g, new THREE.PointsMaterial({ size: 0.42, vertexColors: true, fog: false }))
     this.confetti.frustumCulled = false
     this.group.add(this.confetti)
+  }
+
+  /** Each fan jumps and throws their arms up on their own beat, more as you near the line. */
+  private crowdMaterial(): THREE.MeshStandardMaterial {
+    const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85 })
+    mat.onBeforeCompile = (s) => {
+      Object.assign(s.uniforms, this.crowdU)
+      s.vertexShader = s.vertexShader
+        .replace('#include <common>', `#include <common>
+          attribute float aSkin;
+          attribute float aArm;
+          uniform float uTime, uExcite;
+          varying float vSkin;
+          varying float vTone;`)
+        .replace('#include <begin_vertex>', `#include <begin_vertex>
+          float seed = fract(sin(dot(instanceMatrix[3].xz, vec2(12.9898, 78.233))) * 43758.5453);
+          float beat = max(0.0, sin(uTime * (3.0 + seed * 3.0) + seed * 40.0));
+          float hop = beat * beat * uExcite;
+          transformed.y += hop * 0.5 + aArm * (0.15 + hop * 0.5);
+          vSkin = aSkin;
+          vTone = seed;`)
+      s.fragmentShader = s.fragmentShader
+        .replace('#include <common>', '#include <common>\nvarying float vSkin;\nvarying float vTone;')
+        .replace('#include <color_fragment>', `#include <color_fragment>
+          diffuseColor.rgb = vSkin < -0.5 ? vec3(0.05, 0.06, 0.09) : mix(diffuseColor.rgb, mix(vec3(0.28, 0.16, 0.1), vec3(0.85, 0.62, 0.48), vTone), vSkin);`)
+    }
+    return mat
   }
 
   /** Floodlight masts round the bowl: they announce the stadium from far off. */
@@ -234,6 +267,12 @@ export class Stadium implements Biome {
     if (to < 240 && f.carIdx > n / 2 && !this.cheered) { this.cheered = true; ev.sfx('cheer', 0.8) }
     this.updateFireworks(f, ev)
     this.confetti.visible = near
+    if (this.crowd) {
+      this.crowd.visible = near || f.carIdx > n - 420 || f.carIdx < 130
+      this.crowdU.uTime.value = f.time % 1000
+      const hype = this.party > 0 ? 1 : Math.max(0.2, 1 - to / 500)
+      this.crowdU.uExcite.value += (hype - this.crowdU.uExcite.value) * Math.min(1, f.dt * 2)
+    }
     for (const s of this.shutters) {
       const on = near && (f.time + (s.userData['ph'] as number)) % (this.party > 0 ? 0.9 : 2.6) < 0.09
       ;(s.material as THREE.SpriteMaterial).opacity = on ? 1 : 0
@@ -249,6 +288,22 @@ export class Stadium implements Biome {
     }
     ;(this.confetti.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true
   }
+}
+
+/** One fan: legs and body, a head, and arms that go up. Low detail, there are thousands. */
+function fanGeometry(): THREE.BufferGeometry {
+  const tag = (g: THREE.BufferGeometry, skin: number, arm: number): THREE.BufferGeometry => {
+    const n = g.getAttribute('position').count
+    g.setAttribute('aSkin', new THREE.BufferAttribute(new Float32Array(n).fill(skin), 1))
+    g.setAttribute('aArm', new THREE.BufferAttribute(new Float32Array(n).fill(arm), 1))
+    return g
+  }
+  const legs = new THREE.CylinderGeometry(0.17, 0.13, 0.62, 6, 1).translate(0, 0.31, 0)
+  const body = new THREE.CylinderGeometry(0.15, 0.18, 0.56, 6, 1).translate(0, 0.88, 0)
+  const head = new THREE.SphereGeometry(0.17, 7, 6).translate(0, 1.36, 0)
+  const left = new THREE.CylinderGeometry(0.055, 0.055, 0.66, 4, 1).rotateZ(0.42).translate(-0.3, 1.32, 0)
+  const right = new THREE.CylinderGeometry(0.055, 0.055, 0.66, 4, 1).rotateZ(-0.42).translate(0.3, 1.32, 0)
+  return mergeGeometries([tag(legs, -1, 0), tag(body, 0, 0), tag(head, 1, 0), tag(left, 1, 1), tag(right, 1, 1)], false)!
 }
 
 const MEDAL_COLOR: Record<string, number> = { GOLD: 0xf7c23c, SILVER: 0xd9dee6, BRONZE: 0xc9743e }

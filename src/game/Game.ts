@@ -27,6 +27,7 @@ import { Warp } from './Warp'
 import { Trophy } from './biomes/Finish'
 import { Flourish } from './Flourish'
 import { sweepRoad } from './RoadSweep'
+import { addToBoard, CHALLENGES, doneChallenges, savedPaint, scoreRun, type BoardEntry, type RunStats } from './Progress'
 import type { SfxName, LoopName } from './Sfx'
 
 const BASE = import.meta.env.BASE_URL
@@ -126,6 +127,13 @@ export interface RaceResult {
   isNewBestLap: boolean
   /** Medal for the fastest lap: gold / silver / bronze, or none */
   medal: 'GOLD' | 'SILVER' | 'BRONZE' | null
+  /** Challenges finished for the first time this race. */
+  newChallenges: string[]
+  challengesDone: number
+  challengesTotal: number
+  board: BoardEntry[]
+  /** This race's place on the board, or -1. */
+  boardPlace: number
 }
 
 /** Lap-time targets for the medals (ms). */
@@ -239,6 +247,8 @@ export class Game {
   private readonly warp = new Warp()
   private readonly trophy = new Trophy()
   private trophyT = -1
+  private stats: RunStats = this.freshStats()
+  private lapRings = 0
   private lastToast = ''
   private lastToastAt = 0
   private flourish!: Flourish
@@ -273,6 +283,7 @@ export class Game {
   private readonly biomeEvents = {
     hit: (s: number) => {
       if (this.phase !== 'racing' || this.flight || this.loopRide) return
+      this.stats.hits++
       this.car.scrubSpeed(1 - 0.45 * s)
       this.shake.addTrauma(0.25 + 0.4 * s)
       this.car.bump(0.6 + s)
@@ -349,6 +360,7 @@ export class Game {
     this.gfx.scene.add(this.scenery.group)
 
     this.car = new Car()
+    this.car.setPaint(savedPaint().hex)
     this.car.reset(this.track.spawnPosition, this.track.spawnHeading)
     this.gfx.scene.add(this.car.mesh)
 
@@ -456,6 +468,9 @@ export class Game {
     this.audio.setVolume(s.volume)
     this.chaseCam.setDistanceScale(s.camera === 'near' ? 0.8 : s.camera === 'far' ? 1.25 : 1)
   }
+
+  /** Respray the car. */
+  setPaint(hex: number): void { this.car.setPaint(hex) }
 
   /** Freeze / resume the whole game (settings panel open mid-race). */
   setPaused(paused: boolean): void {
@@ -663,6 +678,8 @@ export class Game {
     this.trophy.hide()
     this.trophyT = -1
     this.revAt = -1
+    this.stats = this.freshStats()
+    this.lapRings = 0
     this.replayCount = 0
     this.resultsShown = false
     this.flourish.rearm()
@@ -726,7 +743,7 @@ export class Game {
       const z = this.track.zoneOfSample(this.trackIndexHint)
       this.flourish.update({ time, dt, idx: this.trackIndexHint, zone: z, carPos: this.car.position, sfx: this.biomeEvents.sfx }, this.flight !== null)
       // salt that mirrors the sky, neon on wet streets
-      const wet = Math.max(this.sky.rain, z === 'saltflat' ? 0.9 : z === 'city' ? 0.7 : 0)
+      const wet = Math.max(this.sky.rain, z === 'saltflat' ? 0.9 : z === 'city' && this.mood.dayLit < 0.5 ? 0.7 : 0)
       this.roadWet += (wet - this.roadWet) * (1 - Math.pow(0.05, dt))
       this.track.setWetness(this.roadWet)
     }
@@ -912,6 +929,7 @@ export class Game {
       const perfect = this.revAt >= stepDuration * 3 - 0.7
       this.car.launch = perfect ? 7 : 4
       if (perfect) {
+        this.stats.perfectLaunch = true
         this.car.setSpeed(30)
         this.chaseCam.kick(14)
         this.shake.addTrauma(0.3)
@@ -946,6 +964,7 @@ export class Game {
     this.car.setSpeed(0)
     this.car.launch = 3
     this.raceTime += 4000
+    this.stats.melts++
     this.flashColor.set(0xff7a2a)
     this.flash = 1
     this.shake.addTrauma(0.8)
@@ -983,6 +1002,7 @@ export class Game {
         this.car.surfaceSlip = surf?.slip ?? 0
         this.car.surfaceDrag = surf?.drag ?? 0
         this.car.topBonus = zone === 'saltflat' ? 1.14 : 1
+        if (zone === 'saltflat') this.stats.saltMph = Math.max(this.stats.saltMph, this.car.getSpeedMph())
         this.car.update(dt, input)
         this.followTrack(dt)
         this.handleTrackBoundary()
@@ -1129,6 +1149,10 @@ export class Game {
   }
 
   /** Take over: the car flies the authored arc along the flight samples. */
+  private freshStats(): RunStats {
+    return { laps: 0, perfectLaunch: false, rings: 0, ringsTotal: 0, hits: 0, melts: 0, saltMph: 0, fastestLapMs: Infinity, medal: null }
+  }
+
   private clearHop(): void {
     this.hopping = false
     this.hopY = 0
@@ -1423,6 +1447,8 @@ export class Game {
     const got = this.flourish.collectRings(this.trackIndexHint, i0, f.off)
     if (got) {
       f.rings += got
+      this.lapRings += got
+      this.stats.rings = Math.max(this.stats.rings, this.lapRings)
       f.speed = Math.min(72, f.speed + 3.5 * got)
       this.car.nitro = Math.min(1, this.car.nitro + 0.3 * got)
       this.audio.sfx('ring', 1, f.rings * 2)
@@ -1533,6 +1559,7 @@ export class Game {
         // Next lap: re-arm the checkpoints, announce the split
         this.lapStart = this.raceTime
         this.checkpointsHit.fill(false)
+        this.lapRings = 0
         this.flourish.rearm()
         this.scenery.biomes.stadium.rearm()
         const bestSoFar = Math.min(...this.lapTimes.slice(0, -1), readMs(BEST_LAP_KEY))
@@ -1572,7 +1599,19 @@ export class Game {
     stadium.setScreen(formatTime(timeMs), medal ? `${medal} MEDAL` : isNewBest ? 'NEW BEST' : 'FINISHED', medal === 'GOLD' ? '#ffcf4a' : '#25d9ff')
     stadium.celebrate(7)
     this.audio.sfx('cheer')
+    const st = this.stats
+    st.laps = this.lapCount
+    st.fastestLapMs = fastest
+    st.medal = medal
+    st.ringsTotal = this.flourish.ringCount
+    const fresh = scoreRun(st)
+    const { board, place } = addToBoard(this.lapCount, { ms: timeMs, medal, paint: savedPaint().id, date: new Date().toISOString().slice(0, 10) })
     this.ui.onFinish({
+      newChallenges: fresh.map((c) => c.label),
+      challengesDone: doneChallenges().size,
+      challengesTotal: CHALLENGES.length,
+      board,
+      boardPlace: place,
       medal,
       totalMs: timeMs,
       bestTotalMs: isNewBest ? timeMs : prevBest,

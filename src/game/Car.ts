@@ -82,6 +82,8 @@ export class Car {
   /** Tyre load 0–1: builds while a turn is held at speed (keyboard steering is on/off). */
   private load = 0
   private readonly tailMats: THREE.MeshStandardMaterial[] = []
+  private readonly paintMats: THREE.MeshStandardMaterial[] = []
+  private paint = CAR_PAINT_COLOR
   private readonly headMats: THREE.MeshStandardMaterial[] = []
   private headlightLevel = 0
   private readonly headlight: THREE.SpotLight
@@ -606,6 +608,12 @@ export class Car {
     })
   }
 
+  /** Body colour (the player's chosen paint). */
+  setPaint(hex: number): void {
+    this.paint = hex
+    for (const m of this.paintMats) m.color.set(hex)
+  }
+
   /** Headlight strength 0–1 (time of day decides). */
   setHeadlights(level: number): void {
     this.headlightLevel = level
@@ -732,6 +740,8 @@ export class Car {
     // ─── Materials. A realistic (HQ) model keeps its own authored PBR
     // materials; the low-poly wedge gets real car paint, glass and rubber. ───
     const paint = createCarPaint()
+    paint.color.set(this.paint)
+    this.paintMats.push(paint)
     const glass = createCarGlass()
     model.traverse((o) => {
       if (!(o instanceof THREE.Mesh)) return
@@ -743,7 +753,7 @@ export class Car {
           if (!(m instanceof THREE.MeshStandardMaterial)) continue
           m.envMapIntensity = 1
           // the HQ model's body shell ships near-black: give it a colour that reads on a dark road
-          if (m.name === 'Material.007') { m.color.set(CAR_PAINT_COLOR); m.metalness = 0.45; m.roughness = 0.3 }
+          if (m.name === 'Material.007') { m.color.set(this.paint); m.metalness = 0.45; m.roughness = 0.3; this.paintMats.push(m) }
           // "Transmission" glass makes three.js render the whole scene a
           // second time every frame (~23 ms on a laptop GPU). Plain
           // transparency looks the same on small lamp lenses and windows.

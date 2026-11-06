@@ -1,5 +1,6 @@
 import './style.css'
 import { Game, formatTime, type GameUI } from './game/Game'
+import { CHALLENGES, PAINTS, doneChallenges, paintUnlocked, savePaint, savedPaint } from './game/Progress'
 import type { TimeOfDay } from './game/Sky'
 import { loadSettings, saveSettings, DEFAULT_SETTINGS, type Settings } from './ui/Settings'
 
@@ -153,6 +154,32 @@ const ui: GameUI = {
     }
     if (r.laps.length > 1) r.laps.forEach((ms, i) => row(`LAP ${i + 1}`, formatTime(ms), ms === fastest))
     row(r.isNewBestLap ? 'BEST LAP (NEW!)' : 'BEST LAP', formatTime(r.bestLapMs), r.isNewBestLap)
+    // new challenges, this browser's top five and what's still to do
+    const unlocks = $('end-unlocks')
+    unlocks.innerHTML = ''
+    for (const label of r.newChallenges) {
+      const d = document.createElement('div')
+      d.textContent = `CHALLENGE DONE · ${label}`
+      unlocks.append(d)
+    }
+    const board = $('end-board')
+    board.innerHTML = ''
+    r.board.forEach((e, k) => {
+      const li = document.createElement('li')
+      li.textContent = `${formatTime(e.ms)}${e.medal ? '  ' + e.medal[0] : ''}`
+      li.classList.toggle('now', k === r.boardPlace)
+      board.append(li)
+    })
+    $('end-count').textContent = `${r.challengesDone}/${r.challengesTotal}`
+    const goals = $('end-goals'), done = doneChallenges()
+    goals.innerHTML = ''
+    for (const c of CHALLENGES) {
+      const li = document.createElement('li')
+      li.textContent = c.label
+      li.classList.toggle('done', done.has(c.id))
+      goals.append(li)
+    }
+    drawPaints()
     if (isTouchDevice) touchControls.classList.add('hidden')
     hud.classList.add('hidden')
   },
@@ -192,6 +219,27 @@ lapButtons.forEach((b) => b.addEventListener('click', () => setLaps(Number(b.dat
   try { stored = Number(localStorage.getItem(LAPS_KEY)) || 1 } catch { /* storage blocked */ }
   setLaps([1, 3, 5].includes(stored) ? stored : 1)
 }
+
+// ── Paint ──────────────────────────────────────────────────────────────
+function drawPaints(): void {
+  const box = $('paint-picker'), current = savedPaint()
+  box.innerHTML = ''
+  for (const p of PAINTS) {
+    const open = paintUnlocked(p)
+    const b = document.createElement('button')
+    b.className = 'paint-btn'
+    b.style.setProperty('--paint', `#${p.hex.toString(16).padStart(6, '0')}`)
+    b.setAttribute('role', 'radio')
+    b.setAttribute('aria-checked', String(p.id === current.id))
+    const need = CHALLENGES.find((c) => c.id === p.unlock)
+    b.setAttribute('aria-label', open ? p.name : `${p.name}, locked`)
+    b.title = open ? p.name : `Locked: ${need?.label ?? ''}`
+    b.disabled = !open
+    b.addEventListener('click', () => { savePaint(p.id); game.setPaint(p.hex); drawPaints() })
+    box.append(b)
+  }
+}
+drawPaints()
 
 // ── Ghost car ──────────────────────────────────────────────────────────
 const GHOST_KEY = 'horizon-drive-ghost-on'
