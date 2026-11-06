@@ -27,7 +27,9 @@ import { Warp } from './Warp'
 import { Trophy } from './biomes/Finish'
 import { Flourish } from './Flourish'
 import { sweepRoad } from './RoadSweep'
+import { savedCar, type CarInfo } from './Catalog'
 import { addToBoard, CHALLENGES, doneChallenges, savedPaint, scoreRun, type BoardEntry, type RunStats } from './Progress'
+import type { ZoneName } from './Track'
 import type { SfxName, LoopName } from './Sfx'
 
 const BASE = import.meta.env.BASE_URL
@@ -70,7 +72,7 @@ const MODEL_MANIFEST: ModelManifest = {
   dtSmall: `${BASE}models/downtown/Building_Small_1.gltf`,
 }
 
-export type GamePhase = 'attract' | 'countdown' | 'racing' | 'finished'
+export type GamePhase = 'attract' | 'preview' | 'countdown' | 'racing' | 'finished'
 
 export interface GameUI {
   setTime(text: string): void
@@ -298,7 +300,7 @@ export class Game {
       this.ui.toast(text, kind)
     },
     draft: (on: boolean) => { this.drafting = on },
-    danger: (label: string | null, level: number, color: string, soft?: boolean) => { this.ui.setDanger(label, level, color, soft) },
+    danger: (label: string | null, level: number, color: string, soft?: boolean) => { if (this.phase !== 'preview') this.ui.setDanger(label, level, color, soft) },
     nitro: (a: number) => { this.car.nitro = Math.min(1, this.car.nitro + a) },
     push: (x: number, z: number) => {
       if (this.phase !== 'racing' || this.flight || this.loopRide) return
@@ -314,7 +316,7 @@ export class Game {
     },
     wreck: (text: string) => this.wreck(text),
     sfx: (name: SfxName, vol?: number, pitch?: number) => { if (this.phase === 'racing') this.audio.sfx(name, vol, pitch) },
-    loop: (name: LoopName, level: number) => { this.audio.setLoop(name, level) },
+    loop: (name: LoopName, level: number) => { this.audio.setLoop(name, this.phase === 'preview' ? 0 : level) },
   }
   private readonly _shadowFocus = new THREE.Vector3()
   private readonly _camFwd = new THREE.Vector3()
@@ -370,9 +372,7 @@ export class Game {
     // Flatten every scenery model to one mesh per material (huge draw-call
     // win). The car is excluded: Car.applyModel() locates wheels by node name.
     void this.assets.loadAll(MODEL_MANIFEST, (f) => { this.modelProgress = f }, (name) => name !== 'car' && name !== 'carHQ').then(() => {
-      const hq = this.assets.get('carHQ')
-      const carModel = hq ?? this.assets.get('car')
-      if (carModel) this.car.applyModel(carModel, 4.5, 0, hq !== null)
+      void this.setCar(savedCar())
       this.scenery.applyModels((name) => this.assets.get(name))
       return this.scenery.biomes.propsReady
     }).then(() => {
@@ -467,6 +467,93 @@ export class Game {
     this.post.setMotionBlur(s.motionBlur)
     this.audio.setVolume(s.volume)
     this.chaseCam.setDistanceScale(s.camera === 'near' ? 0.8 : s.camera === 'far' ? 1.25 : 1)
+  }
+
+  /** Swap to another car: its model and its handling. */
+  async setCar(info: CarInfo): Promise<void> {
+    const ticket = ++this.carTicket
+    if (info.file && !this.assets.get(info.model)) await this.assets.loadAll({ [info.model]: `${BASE}models/${info.file}` }, () => undefined, () => false)
+    if (ticket !== this.carTicket) return // picked another while this one loaded
+    const model = this.assets.get(info.model) ?? this.assets.get('car')
+    this.car.setStats(info.stats)
+    if (!model) return
+    const yaw = this.car.heading, tilt = this.car.mesh.rotation.x
+    this.car.applyModel(model, 4.5, 0, !!info.hq)
+    this.car.mesh.rotation.set(tilt, yaw, 0)
+    this.car.setPaint(savedPaint().hex)
+  }
+  private carTicket = 0
+
+  // ── Track preview: the car drives a stretch of road behind the menu ──
+  private previewRun: number[] = []
+  private previewPos = 0
+  private previewT = 0
+
+  /** Drive the stretch of road `at` (0–1) of the way through this zone. */
+  startPreview(zone: ZoneName, at: number): void {
+    const t = this.track, n = t.sampleCount
+    const ids: number[] = []
+    for (let i = 0; i < n; i++) if (t.zoneOfSample(i) === zone) ids.push(i)
+    const run: number[] = []
+    for (let i = ids[Math.floor(ids.length * at)] ?? 0; run.length < 520; i = (i + 1) % n) {
+      const z = t.zoneOfSample(i)
+      if (t.isGap(i) || z === 'loop' || z === 'roll') { if (run.length > 150) break; run.length = 0; continue }
+      run.push(i)
+    }
+    this.previewRun = run
+    this.previewPos = 0
+    this.previewT = 0
+    this.flight = null
+    this.loopRide = null
+    this.clearHop()
+    this.ghost.mesh.visible = false
+    this.phase = 'preview'
+    this.car.setSpeed(40)
+  }
+
+  /** Back to the car on the start line. */
+  stopPreview(): void {
+    if (this.phase !== 'preview') return
+    this.phase = 'attract'
+    this.resetRaceState()
+  }
+
+  private updatePreview(dt: number): void {
+    const t = this.track, run = this.previewRun
+    if (!run.length) return
+    this.previewT += dt
+    this.previewPos += (40 * dt) / MS_PER_SAMPLE
+    if (this.previewPos >= run.length - 2) {
+      this.previewPos = 0
+      this.flashColor.set(0x000000)
+      this.flash = 1
+    }
+    const k = Math.floor(this.previewPos), fr = this.previewPos - k
+    const i = run[k]!, tg = t.tangents[i]!
+    this._flightPos.lerpVectors(t.samples[i]!, t.samples[run[k + 1]!]!, fr)
+    this.car.setPose(this._flightPos, Math.atan2(-tg.x, -tg.z))
+    this.car.setSlopePitch(Math.asin(THREE.MathUtils.clamp(tg.y, -1, 1)), 0.2)
+    this.car.mesh.rotation.z = Math.atan(t.bank[i]!)
+    this.car.spinWheels(40 * dt)
+    this.trackIndexHint = i
+    this.updateBlobShadow(this._flightPos.y)
+
+    // three slow cuts; a tunnel only has room for the view from behind
+    const cam = this.gfx.camera, p = this._flightPos
+    const fx = -Math.sin(this.car.heading), fz = -Math.cos(this.car.heading), rx = -fz, rz = fx
+    const shot = this.scenery.biomes.enclosed(i) ? 0 : Math.floor(this.previewT / 6) % 3
+    const s = Math.sin(this.previewT * 0.35)
+    if (shot === 0) {
+      cam.position.set(p.x - fx * 10 + rx * s * 4, p.y + 3, p.z - fz * 10 + rz * s * 4)
+      cam.lookAt(p.x + fx * 12, p.y + 1.6, p.z + fz * 12)
+    } else if (shot === 1) {
+      cam.position.set(p.x + fx * 13 + rx * 7, p.y + 1.7, p.z + fz * 13 + rz * 7)
+      cam.lookAt(p.x, p.y + 1, p.z)
+    } else {
+      cam.position.set(p.x - fx * 5 + rx * 15, p.y + 8, p.z - fz * 5 + rz * 15)
+      cam.lookAt(p.x + fx * 8, p.y + 1, p.z + fz * 8)
+    }
+    if (cam.fov !== 56) { cam.fov = 56; cam.updateProjectionMatrix() }
   }
 
   /** Respray the car. */
@@ -714,8 +801,13 @@ export class Game {
 
     switch (this.phase) {
       case 'attract':
-        this.cineCam.update(this.gfx.camera, dt, this.car.mesh.position)
+        this.cineCam.update(this.gfx.camera, dt, this.car.mesh.position, this.car.heading)
         this.post.setSpeed(0)
+        break
+
+      case 'preview':
+        this.updatePreview(dt)
+        this.post.setSpeed(0.2)
         break
 
       case 'countdown':

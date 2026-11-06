@@ -2,6 +2,7 @@ import './style.css'
 import { Game, formatTime, type GameUI } from './game/Game'
 import { CHALLENGES, PAINTS, doneChallenges, paintUnlocked, savePaint, savedPaint } from './game/Progress'
 import type { TimeOfDay } from './game/Sky'
+import { Lobby } from './ui/Lobby'
 import { loadSettings, saveSettings, DEFAULT_SETTINGS, type Settings } from './ui/Settings'
 
 function $(id: string): HTMLElement {
@@ -421,9 +422,11 @@ function exitToMenu(): void {
   splash.classList.remove('hidden')
   splash.classList.remove('fading')
   game.exitToAttract()
+  lobby.reset()
 }
 
-$('start-btn').addEventListener('click', startRace)
+const lobby = new Lobby(game, startRace)
+
 $('retry-btn').addEventListener('click', () => {
   endScreen.classList.add('hidden')
   game.startRace()

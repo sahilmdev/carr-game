@@ -104,7 +104,7 @@ export class Car {
   private readonly _moveDir = new THREE.Vector3()
 
   constructor(config: CarConfig = CAR_CONFIG) {
-    this.config = config
+    this.config = { ...config }
     this.position = new THREE.Vector3()
     this.velocity = new THREE.Vector3()
     this.mesh = new THREE.Group()
@@ -608,6 +608,11 @@ export class Car {
     })
   }
 
+  /** Handling for the chosen car, on top of the standard set-up. */
+  setStats(stats: Partial<CarConfig>): void {
+    Object.assign(this.config, CAR_CONFIG, stats)
+  }
+
   /** Body colour (the player's chosen paint). */
   setPaint(hex: number): void {
     this.paint = hex
@@ -653,6 +658,7 @@ export class Car {
     // ─── Clear the procedural body + wheels ───
     this.tailMats.length = 0
     this.headMats.length = 0
+    this.paintMats.length = 0
     while (this.bodyGroup.children.length) this.bodyGroup.remove(this.bodyGroup.children[0]!)
     for (const w of this.wheels) this.mesh.remove(w)
     this.wheels.length = 0
@@ -673,7 +679,11 @@ export class Car {
     // recompute every box from the real vertices before measuring anything.
     model.traverse((o) => {
       const m = o as THREE.Mesh
-      if (m.isMesh) { m.geometry.computeBoundingBox(); m.geometry.computeBoundingSphere() }
+      if (!m.isMesh) return
+      m.geometry.computeBoundingBox()
+      m.geometry.computeBoundingSphere()
+      // without normals the lighting gives NaN pixels, and the glow pass spreads them into black squares
+      if (!m.geometry.getAttribute('normal')) m.geometry.computeVertexNormals()
     })
     this.bodyGroup.add(model)
     this.mesh.updateMatrixWorld(true)

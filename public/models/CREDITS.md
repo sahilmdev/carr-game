@@ -18,8 +18,8 @@ CC0 needs no attribution. Sources are Poly Pizza model pages (which link the ori
 | `station.glb` | Space stations | [poly.pizza/m/0oBRDJ9Zl9](https://poly.pizza/m/0oBRDJ9Zl9) | CC-BY |
 | `satellite.glb` | Space satellites / ringed planet | [poly.pizza/m/0JHDsr640sL](https://poly.pizza/m/0JHDsr640sL) | CC-BY |
 | `rocket.glb` | Space rockets | [poly.pizza/m/1LSpWhScgwr](https://poly.pizza/m/1LSpWhScgwr) | CC-BY |
-| `car_sports.glb` | (unused backup) | [poly.pizza/m/1mkmFkAz5v](https://poly.pizza/m/1mkmFkAz5v) | CC0 |
-| `car_80s.glb`, `car_aventador.glb`, `arrow.glb`, `scifi.glb` | (unused backups) | Poly Pizza | CC-BY |
+| `car_sports.glb` | Kestrel (selectable car) | [poly.pizza/m/1mkmFkAz5v](https://poly.pizza/m/1mkmFkAz5v) | CC0 |
+| `car_80s.glb`, `car_aventador.glb` | Slider and Stiletto V12 (selectable cars); `arrow.glb`, `scifi.glb` are unused | Poly Pizza | CC-BY |
 
 ## Town biome (biome 1) dressing
 

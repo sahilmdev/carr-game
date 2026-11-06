@@ -9,9 +9,10 @@ export class CinematicCamera {
   private readonly _look = new THREE.Vector3()
   private readonly _side = new THREE.Vector3()
 
-  update(camera: THREE.PerspectiveCamera, dt: number, target: THREE.Vector3): void {
+  update(camera: THREE.PerspectiveCamera, dt: number, target: THREE.Vector3, heading = 0): void {
     this.t += dt * 0.07
-    const a = 0.9 + Math.sin(this.t) * 0.75
+    // always ahead of the car and over the road, so no trackside board can block the view
+    const a = heading + Math.PI + 0.7 + Math.sin(this.t) * 0.35
     const radius = 11.5 + Math.sin(this.t * 0.6) * 0.8
     camera.position.set(target.x + Math.sin(a) * radius, target.y + 1.25 + Math.sin(this.t * 0.4) * 0.3, target.z + Math.cos(a) * radius)
     // aim left of the car so it lands in the right half of the frame

@@ -19,56 +19,118 @@
     <div id="loading-label" class="loading-label">LOADING WORLD</div>
   </div>
   <div id="splash" class="screen">
-    <div class="splash-vignette"></div>
-    <div class="splash-content">
-      <div class="logo-container">
-        <div class="logo-horizon">NITRO</div>
-        <div class="logo-drive">Cosmos</div>
-      </div>
+    <div id="lobby-fade"></div>
+    <div id="lobby">
 
-      <div class="opt-list">
-        <div class="opt-row"><span class="opt-label">Time</span>
-          <div id="tod-picker" class="tod-picker" role="radiogroup" aria-label="Time of day">
-            <button class="tod-btn" data-tod="morning" role="radio">Morning</button>
-            <button class="tod-btn" data-tod="midday" role="radio">Midday</button>
-            <button class="tod-btn" data-tod="sunset" role="radio">Sunset</button>
-            <button class="tod-btn" data-tod="night" role="radio">Night</button>
+      <section class="lobby-screen" data-screen="title">
+        <div class="splash-vignette"></div>
+        <div class="title-col">
+          <div class="logo-container">
+            <div class="logo-horizon">NITRO</div>
+            <div class="logo-drive">Cosmos</div>
           </div>
+          <nav class="title-menu" aria-label="Main menu">
+            <button id="go-gp" class="menu-item" data-primary><span>Grand Prix</span><small>Win cups, unlock more</small></button>
+            <button id="go-single" class="menu-item"><span>Single Race</span><small>Any track, your choice of laps</small></button>
+            <button id="go-trophies" class="menu-item"><span>Trophies</span><small>Cups and challenges</small></button>
+            <button id="settings-open" class="menu-item minor"><span>Settings</span></button>
+          </nav>
         </div>
-        <div class="opt-row"><span class="opt-label">Weather</span>
-          <div id="weather-picker" class="tod-picker" role="radiogroup" aria-label="Weather">
-            <button class="tod-btn" data-weather="clear" role="radio">Clear</button>
-            <button class="tod-btn" data-weather="rain" role="radio">Rain</button>
-          </div>
+        <div class="control-hints">
+          <span><kbd>&larr;</kbd><kbd>&rarr;</kbd> Steer</span>
+          <span><kbd>&uarr;</kbd><kbd>&darr;</kbd> Drive</span>
+          <span><kbd>Shift</kbd> Nitro</span>
+          <span><kbd>P</kbd> Photo</span>
         </div>
-        <div class="opt-row"><span class="opt-label">Laps</span>
-          <div id="laps-picker" class="tod-picker" role="radiogroup" aria-label="Race length">
-            <button class="tod-btn" data-laps="1" role="radio">1</button>
-            <button class="tod-btn" data-laps="3" role="radio">3</button>
-            <button class="tod-btn" data-laps="5" role="radio">5</button>
-          </div>
-        </div>
-        <div class="opt-row"><span class="opt-label">Paint</span>
-          <div id="paint-picker" class="paint-picker" role="radiogroup" aria-label="Car paint"></div>
-        </div>
-        <div class="opt-row"><span class="opt-label">Ghost car</span>
-          <div id="ghost-picker" class="tod-picker" role="radiogroup" aria-label="Ghost car">
-            <button class="tod-btn" data-ghost="on" role="radio">On</button>
-            <button class="tod-btn" data-ghost="off" role="radio">Off</button>
-          </div>
-        </div>
-      </div>
+      </section>
 
-      <div class="menu-actions">
-        <button id="start-btn" class="start-button"><span class="start-label">Start race</span></button>
-        <button id="settings-open" class="settings-link">Settings</button>
+      <section class="lobby-screen" data-screen="car">
+        <div class="splash-vignette"></div>
+        <header class="lobby-head"><button class="back-btn" data-back aria-label="Back">&larr;</button><h1>Choose your car</h1></header>
+        <div class="car-panel">
+          <div id="car-list" class="car-list" role="radiogroup" aria-label="Car"></div>
+          <div class="car-info">
+            <h2 id="car-name"></h2>
+            <p id="car-blurb"></p>
+            <div id="car-bars"></div>
+            <div class="paint-row"><span>Paint</span><div id="paint-picker" class="paint-picker" role="radiogroup" aria-label="Car paint"></div></div>
+          </div>
+          <button id="car-next" class="go-btn" data-primary>Next</button>
+        </div>
+      </section>
+
+      <section class="lobby-screen" data-screen="cups">
+        <header class="lobby-head"><button class="back-btn" data-back aria-label="Back">&larr;</button><h1>Grand Prix</h1><span class="head-note">3 laps every race</span></header>
+        <div id="cup-list" class="cup-list" role="radiogroup" aria-label="Cup"></div>
+        <div class="bottom-panel">
+          <div class="bottom-title"><h2 id="cup-title"></h2><p id="cup-tagline"></p></div>
+          <div id="cup-races" class="cup-races"></div>
+          <button id="cup-start" class="go-btn" data-primary>Start cup</button>
+        </div>
+      </section>
+
+      <section class="lobby-screen" data-screen="tracks">
+        <header class="lobby-head"><button class="back-btn" data-back aria-label="Back">&larr;</button><h1>Single Race</h1></header>
+        <div id="track-list" class="track-list"></div>
+        <div class="bottom-panel">
+          <div class="bottom-title"><h2 id="track-title"></h2><p id="track-blurb"></p></div>
+          <div class="race-options">
+            <div class="opt-row"><span class="opt-label">Laps</span>
+              <div id="laps-picker" class="tod-picker" role="radiogroup" aria-label="Race length">
+                <button class="tod-btn" data-laps="1" role="radio">1</button>
+                <button class="tod-btn" data-laps="3" role="radio">3</button>
+                <button class="tod-btn" data-laps="5" role="radio">5</button>
+              </div>
+            </div>
+            <div id="tour-options">
+              <div class="opt-row"><span class="opt-label">Time</span>
+                <div id="tod-picker" class="tod-picker" role="radiogroup" aria-label="Time of day">
+                  <button class="tod-btn" data-tod="morning" role="radio">Morning</button>
+                  <button class="tod-btn" data-tod="midday" role="radio">Midday</button>
+                  <button class="tod-btn" data-tod="sunset" role="radio">Sunset</button>
+                  <button class="tod-btn" data-tod="night" role="radio">Night</button>
+                </div>
+              </div>
+              <div class="opt-row"><span class="opt-label">Weather</span>
+                <div id="weather-picker" class="tod-picker" role="radiogroup" aria-label="Weather">
+                  <button class="tod-btn" data-weather="clear" role="radio">Clear</button>
+                  <button class="tod-btn" data-weather="rain" role="radio">Rain</button>
+                </div>
+              </div>
+              <div class="opt-row"><span class="opt-label">Ghost car</span>
+                <div id="ghost-picker" class="tod-picker" role="radiogroup" aria-label="Ghost car">
+                  <button class="tod-btn" data-ghost="on" role="radio">On</button>
+                  <button class="tod-btn" data-ghost="off" role="radio">Off</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <button id="track-start" class="go-btn" data-primary>Race</button>
+        </div>
+      </section>
+
+      <section class="lobby-screen" data-screen="trophies">
+        <div class="splash-vignette full"></div>
+        <header class="lobby-head"><button class="back-btn" data-back aria-label="Back">&larr;</button><h1>Trophies</h1></header>
+        <div class="trophy-room">
+          <div id="trophy-cups" class="trophy-cups"></div>
+          <div class="trophy-goals-box">
+            <h2>Challenges <span id="trophy-count"></span></h2>
+            <ul id="trophy-goals" class="trophy-goals"></ul>
+          </div>
+        </div>
+      </section>
+
+      <div id="lobby-notice" class="lobby-notice hidden" role="dialog" aria-modal="true" aria-labelledby="notice-title">
+        <div class="notice-box">
+          <h2 id="notice-title"></h2>
+          <p id="notice-text"></p>
+          <div class="notice-actions">
+            <button id="notice-tour" class="go-btn">Race the Grand Tour</button>
+            <button id="notice-back" class="back-link">Back</button>
+          </div>
+        </div>
       </div>
-    </div>
-    <div class="control-hints">
-      <span><kbd>&larr;</kbd><kbd>&rarr;</kbd> Steer</span>
-      <span><kbd>&uarr;</kbd><kbd>&darr;</kbd> Drive</span>
-      <span><kbd>Shift</kbd> Nitro</span>
-      <span><kbd>P</kbd> Photo</span>
     </div>
   </div>
 

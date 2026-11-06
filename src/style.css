@@ -951,3 +951,112 @@ html, body {
   .end-buttons { margin-top: 6px; }
 }
 @media (max-height: 800px) { .end-content { zoom: 0.9; } }
+
+/* ═══════════════ Lobby ═══════════════ */
+#splash { display: block; padding: 0; overflow: hidden; }
+#lobby, .lobby-screen { position: absolute; inset: 0; }
+.lobby-screen { display: none; color: #fff; }
+.lobby-screen.active { display: block; animation: lobby-in 0.28s ease-out; }
+@keyframes lobby-in { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .lobby-screen.active { animation: none; } }
+#lobby-fade { position: absolute; inset: 0; z-index: 5; background: #05060c; opacity: 0; pointer-events: none; transition: opacity 0.2s; }
+#lobby-fade.on { opacity: 1; }
+.splash-vignette.full { background: rgba(5, 7, 16, 0.72); }
+.lobby-screen button { font-family: var(--ui-font); color: #fff; cursor: pointer; }
+.lobby-screen button:focus-visible, .lobby-notice button:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+
+.title-col { position: absolute; left: clamp(16px, 6vw, 96px); top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: clamp(14px, 3vh, 30px); width: min(420px, calc(100vw - 32px)); }
+.title-col .logo-container { margin: 0; }
+.title-menu { display: flex; flex-direction: column; gap: 8px; }
+.menu-item { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 12px 20px; text-align: left; background: rgba(8, 10, 22, 0.62); border: 0; border-left: 4px solid transparent; border-radius: 4px; transition: background 0.15s, border-color 0.15s, padding-left 0.15s; }
+.menu-item span { font-family: var(--logo-font); font-style: italic; font-weight: 800; font-size: clamp(26px, 4.2vh, 36px); letter-spacing: 0.02em; line-height: 1; text-transform: uppercase; }
+.menu-item small { font-size: 13px; color: rgba(255, 255, 255, 0.72); }
+.menu-item:hover, .menu-item:focus-visible { background: #e0142a; border-left-color: #fff; padding-left: 28px; }
+.menu-item:hover small, .menu-item:focus-visible small { color: #fff; }
+.menu-item.minor span { font-size: 20px; }
+#lobby .control-hints { position: absolute; left: clamp(16px, 6vw, 96px); bottom: 18px; }
+
+.lobby-head { position: absolute; left: 0; right: 0; top: 0; z-index: 2; display: flex; align-items: center; gap: 14px; padding: 16px clamp(16px, 3vw, 40px); background: linear-gradient(180deg, rgba(5, 7, 16, 0.78), transparent); }
+.lobby-head h1 { font-family: var(--logo-font); font-style: italic; font-weight: 800; font-size: clamp(30px, 5vh, 44px); text-transform: uppercase; letter-spacing: 0.02em; line-height: 1; }
+.head-note { margin-left: auto; font-size: 14px; font-weight: 600; color: rgba(255, 255, 255, 0.85); }
+.back-btn { width: 44px; height: 44px; flex: none; border-radius: 50%; border: 0; background: rgba(8, 10, 22, 0.7); font-size: 20px; }
+.back-btn:hover { background: #e0142a; }
+.go-btn { padding: 14px 34px; min-height: 52px; flex: none; border: 0; border-radius: 4px; background: #e0142a; font-family: var(--logo-font) !important; font-style: italic; font-weight: 800; font-size: 26px; line-height: 1; text-transform: uppercase; transition: background 0.15s, transform 0.15s; }
+.go-btn:hover:not(:disabled) { background: #ff2c44; transform: translateY(-1px); }
+.go-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.car-panel { position: absolute; left: clamp(16px, 3vw, 40px); top: 84px; bottom: 20px; width: min(380px, calc(100vw - 32px)); display: flex; flex-direction: column; gap: 12px; overflow-y: auto; scrollbar-width: none; }
+.car-list { display: flex; flex-direction: column; gap: 4px; }
+.car-card { padding: 9px 14px; text-align: left; font-size: 15px; font-weight: 600; background: rgba(8, 10, 22, 0.6); border: 0; border-left: 4px solid transparent; border-radius: 4px; }
+.car-card:hover { background: rgba(255, 255, 255, 0.14); }
+.car-card[aria-checked="true"] { background: #fff; color: #0a0d16 !important; border-left-color: #e0142a; }
+.car-info { padding: 14px; background: rgba(8, 10, 22, 0.66); border-radius: 4px; }
+.car-info h2 { font-family: var(--logo-font); font-style: italic; font-weight: 800; font-size: 30px; line-height: 1; text-transform: uppercase; }
+.car-info p { margin: 4px 0 10px; font-size: 14px; line-height: 1.35; color: rgba(255, 255, 255, 0.85); }
+.stat-row { display: flex; justify-content: space-between; align-items: center; padding: 3px 0; font-size: 13px; font-weight: 600; }
+.stat-pips { display: flex; gap: 3px; }
+.stat-pips i { width: 26px; height: 8px; background: rgba(255, 255, 255, 0.2); transform: skewX(-18deg); }
+.stat-pips i.on { background: #ff3b52; }
+.paint-row { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; font-size: 13px; font-weight: 600; }
+.car-panel .go-btn { align-self: flex-start; }
+
+.cup-list { position: absolute; top: 84px; left: clamp(16px, 3vw, 40px); right: clamp(16px, 3vw, 40px); display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.cup-card { display: grid; grid-template-columns: 44px 1fr; grid-template-rows: auto auto; column-gap: 10px; padding: 10px 12px; text-align: left; background: rgba(8, 10, 22, 0.66); border: 0; border-bottom: 4px solid transparent; border-radius: 4px; }
+.cup-card:hover { background: rgba(30, 34, 52, 0.8); }
+.cup-card[aria-checked="true"] { border-bottom-color: var(--cup); background: rgba(8, 10, 22, 0.86); }
+.cup-card .cup-icon { grid-row: 1 / 3; color: var(--cup); }
+.cup-card.locked .cup-icon { color: rgba(255, 255, 255, 0.5); }
+.cup-icon svg { width: 44px; height: 44px; fill: currentColor; display: block; }
+.cup-icon.gold { color: #ffcf4a !important; } .cup-icon.silver { color: #d9dee6 !important; } .cup-icon.bronze { color: #c9743e !important; } .cup-icon.empty { opacity: 0.3; }
+.cup-name { font-family: var(--logo-font); font-style: italic; font-weight: 800; font-size: 22px; line-height: 1.05; text-transform: uppercase; }
+.cup-result { font-size: 12px; color: rgba(255, 255, 255, 0.72); text-transform: capitalize; }
+
+.bottom-panel { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: flex-end; gap: clamp(12px, 2vw, 26px); padding: 40px clamp(16px, 3vw, 40px) 18px; background: linear-gradient(0deg, rgba(5, 7, 16, 0.9) 45%, transparent); }
+.bottom-title { flex: 0 1 280px; min-width: 0; }
+.bottom-title h2 { font-family: var(--logo-font); font-style: italic; font-weight: 800; font-size: clamp(26px, 4.4vh, 38px); line-height: 1; text-transform: uppercase; }
+.bottom-title p { margin-top: 3px; font-size: 14px; line-height: 1.3; color: rgba(255, 255, 255, 0.85); }
+.cup-races { flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; min-width: 0; }
+.track-tile { position: relative; display: flex; flex-direction: column; justify-content: flex-end; align-items: flex-start; gap: 2px; min-height: 66px; padding: 8px 10px; text-align: left; border: 0; border-radius: 4px; background: linear-gradient(135deg, var(--a), var(--b)); box-shadow: inset 0 -44px 34px -18px rgba(0, 0, 0, 0.72); transition: transform 0.12s; }
+.track-tile:hover { transform: translateY(-2px); }
+.track-tile[aria-pressed="true"] { outline: 3px solid #fff; outline-offset: 1px; }
+.track-name { font-size: 14px; font-weight: 700; line-height: 1.1; }
+.track-tag { position: absolute; top: 6px; right: 6px; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 700; color: #fff; background: rgba(0, 0, 0, 0.6); }
+.track-list { position: absolute; top: 80px; right: clamp(16px, 3vw, 40px); bottom: 150px; width: min(560px, calc(100vw - 32px)); display: grid; grid-template-columns: repeat(3, 1fr); grid-auto-rows: minmax(62px, 1fr); gap: 7px; overflow-y: auto; padding: 4px; scrollbar-width: none; }
+.race-options { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+#tour-options { display: flex; flex-wrap: wrap; gap: 6px 22px; }
+#tour-options.hidden { display: none; }
+.race-options .opt-row { justify-content: flex-start; gap: 10px; }
+
+.trophy-room { position: absolute; top: 84px; left: clamp(16px, 3vw, 40px); right: clamp(16px, 3vw, 40px); bottom: 20px; display: flex; flex-direction: column; gap: 20px; overflow-y: auto; scrollbar-width: none; }
+.trophy-cups { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.trophy-slot { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 14px 8px; font-weight: 700; background: rgba(255, 255, 255, 0.06); border-radius: 4px; text-align: center; color: var(--cup); }
+.trophy-slot span:last-of-type { color: #fff; }
+.trophy-slot small { color: rgba(255, 255, 255, 0.72); font-weight: 500; text-transform: capitalize; }
+.trophy-slot svg { width: 64px; height: 64px; }
+.trophy-goals-box h2 { font-size: 16px; margin-bottom: 8px; }
+.trophy-goals-box h2 span { font-weight: 500; color: rgba(255, 255, 255, 0.72); margin-left: 6px; }
+.trophy-goals { list-style: none; columns: 2; font-size: 14px; color: rgba(255, 255, 255, 0.72); }
+.trophy-goals li { padding: 3px 0; break-inside: avoid; }
+.trophy-goals li::before { content: '○  '; }
+.trophy-goals li.done { color: #7dffa0; }
+.trophy-goals li.done::before { content: '●  '; }
+
+.lobby-notice { position: absolute; inset: 0; z-index: 4; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(5, 7, 16, 0.6); }
+.notice-box { width: min(440px, 100%); padding: 24px; background: #0c0f1c; border-radius: 6px; color: #fff; }
+.notice-box h2 { font-family: var(--logo-font); font-style: italic; font-weight: 800; font-size: 30px; line-height: 1.05; text-transform: uppercase; }
+.notice-box p { margin: 8px 0 16px; font-size: 15px; line-height: 1.4; color: rgba(255, 255, 255, 0.85); }
+.notice-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.back-link { padding: 10px 6px; border: 0; background: none; color: #fff; font-size: 15px; font-weight: 600; cursor: pointer; }
+.back-link:hover { text-decoration: underline; }
+
+@media (max-width: 760px) {
+  .cup-list { grid-template-columns: repeat(2, 1fr); }
+  .bottom-panel { flex-wrap: wrap; align-items: stretch; }
+  .bottom-title { flex-basis: 100%; }
+  .cup-races { grid-template-columns: repeat(2, 1fr); flex-basis: 100%; }
+  .go-btn { flex: 1; }
+  .track-list { top: 76px; left: 16px; right: 16px; width: auto; bottom: 214px; grid-template-columns: repeat(2, 1fr); }
+  .trophy-cups { grid-template-columns: repeat(2, 1fr); }
+  .trophy-goals { columns: 1; }
+  .head-note { display: none; }
+}
