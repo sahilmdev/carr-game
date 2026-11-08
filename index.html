@@ -40,6 +40,8 @@
           <span><kbd>&larr;</kbd><kbd>&rarr;</kbd> Steer</span>
           <span><kbd>&uarr;</kbd><kbd>&darr;</kbd> Drive</span>
           <span><kbd>Shift</kbd> Nitro</span>
+          <span><kbd>E</kbd> Item</span>
+          <span><kbd>Space</kbd> mid-air: Trick</span>
           <span><kbd>P</kbd> Photo</span>
         </div>
       </section>
@@ -60,7 +62,12 @@
       </section>
 
       <section class="lobby-screen" data-screen="cups">
-        <header class="lobby-head"><button class="back-btn" data-back aria-label="Back">&larr;</button><h1>Grand Prix</h1><span class="head-note">3 laps every race</span></header>
+        <header class="lobby-head"><button class="back-btn" data-back aria-label="Back">&larr;</button><h1>Grand Prix</h1><span class="head-note">3 laps every race</span>
+          <div id="difficulty-picker" class="tod-picker head-picker" role="radiogroup" aria-label="Difficulty">
+            <button class="tod-btn" data-level="easy" role="radio">Easy</button>
+            <button class="tod-btn" data-level="medium" role="radio">Medium</button>
+            <button class="tod-btn" data-level="hard" role="radio">Hard</button>
+          </div></header>
         <div id="cup-list" class="cup-list" role="radiogroup" aria-label="Cup"></div>
         <div class="bottom-panel">
           <div class="bottom-title"><h2 id="cup-title"></h2><p id="cup-tagline"></p></div>
@@ -70,7 +77,12 @@
       </section>
 
       <section class="lobby-screen" data-screen="tracks">
-        <header class="lobby-head"><button class="back-btn" data-back aria-label="Back">&larr;</button><h1>Single Race</h1></header>
+        <header class="lobby-head"><button class="back-btn" data-back aria-label="Back">&larr;</button><h1>Single Race</h1>
+          <div id="difficulty-picker-2" class="tod-picker head-picker left" role="radiogroup" aria-label="Difficulty">
+            <button class="tod-btn" data-level="easy" role="radio">Easy</button>
+            <button class="tod-btn" data-level="medium" role="radio">Medium</button>
+            <button class="tod-btn" data-level="hard" role="radio">Hard</button>
+          </div></header>
         <div id="track-list" class="track-list"></div>
         <div class="bottom-panel">
           <div class="bottom-title"><h2 id="track-title"></h2><p id="track-blurb"></p></div>
@@ -141,6 +153,9 @@
       <span id="hud-time" class="hud-value">00:00:000</span>
       <span id="hud-lap" class="hud-lap">LAP 1/1</span>
     </div>
+    <div id="hud-place" class="hud-place"></div>
+    <div id="hud-item" class="hud-item empty"><div id="hud-item-icon" class="hud-item-icon"></div><span id="hud-item-count" class="hud-item-count"></span><kbd>E</kbd></div>
+    <div id="hud-warn" class="hud-warn hidden"></div>
     <div id="danger-vig" class="danger-vig"></div>
     <div id="danger" class="danger hidden"><span id="danger-label"></span><div class="danger-track"><div id="danger-fill"></div></div></div>
     <div id="lap-toast" class="lap-toast hidden"></div>
@@ -176,6 +191,29 @@
       </div>
     </div>
   </div>
+
+  <!-- ============ RACE RESULTS ============ -->
+  <div id="race-end" class="result-screen hidden">
+    <div class="result-box">
+      <p id="end-round" class="result-kicker"></p>
+      <h2 id="end-race-name"></h2>
+      <div id="end-table" class="end-table"></div>
+      <div class="notice-actions">
+        <button id="end-next" class="go-btn">Next race</button>
+        <button id="end-exit" class="back-link">Exit to menu</button>
+      </div>
+    </div>
+  </div>
+  <div id="cup-end" class="result-screen hidden">
+    <div class="result-box">
+      <p class="result-kicker">Cup complete</p>
+      <h2 id="cup-end-title" class="cup-end-title"></h2>
+      <p id="cup-end-sub" class="cup-end-sub"></p>
+      <div id="cup-end-table" class="end-table"></div>
+      <div class="notice-actions"><button id="cup-end-done" class="go-btn">Back to menu</button></div>
+    </div>
+  </div>
+  <div id="track-loading" class="track-loading hidden"><span>Loading</span><strong id="track-loading-name"></strong></div>
 
   <!-- ============ COUNTDOWN ============ -->
   <div id="countdown" class="screen hidden">

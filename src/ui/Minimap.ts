@@ -11,7 +11,7 @@ export class Minimap {
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
-    private readonly track: Track
+    private readonly track: Pick<Track, 'samples' | 'tangents' | 'spawnPosition'>
   ) {
     this.ctx = canvas.getContext('2d')!
 
@@ -64,10 +64,17 @@ export class Minimap {
     return [x * this.scale + this.offsetX, z * this.scale + this.offsetY]
   }
 
-  update(carPos: THREE.Vector3): void {
+  update(carPos: THREE.Vector3, others: THREE.Vector3[] = []): void {
     const ctx = this.ctx
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
     ctx.drawImage(this.base, 0, 0)
+    ctx.fillStyle = '#ffd24a'
+    for (const o of others) {
+      const [ox, oy] = this.toCanvas(o.x, o.z)
+      ctx.beginPath()
+      ctx.arc(ox, oy, 3.4, 0, Math.PI * 2)
+      ctx.fill()
+    }
 
     const [x, y] = this.toCanvas(carPos.x, carPos.z)
     ctx.beginPath()

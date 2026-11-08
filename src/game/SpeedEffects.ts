@@ -157,7 +157,7 @@ export class SpeedEffects {
 const SPARK = new THREE.Color(5, 2.6, 0.8)
 const SPARK2 = new THREE.Color(4, 3.4, 2)
 const SOOT = new THREE.Color(0.09, 0.08, 0.08)
-const FIRE = new THREE.Color(3.2, 1.1, 0.25)
+const FIRE = new THREE.Color(1.1, 0.42, 0.12)
 
 const DUST = new THREE.Color(0xa08a6a)
 

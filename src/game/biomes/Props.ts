@@ -22,6 +22,13 @@ export type PropName =
   | 'dutch_ship_medium' | 'modular_wooden_pier' | 'coastal_cliff_01' | 'bronze_shark_statue' | 'bronze_ray_statue' | 'bronze_whale_statue'
   | 'treasure_chest' | 'cannon_01' | 'ocean_buoy' | 'lateral_sea_marker' | 'wooden_barrels_01' | 'namaqualand_cliff_02' | 'modular_fire_escape'
   | 'dt:Building_Large_2' | 'dt:Building_Medium_2_001' | 'dt:Building_Small_1' | 'dt:Prop_ACUnit' | 'dt:Sidewalk_Planter' | 'dt:Prop_Bollard'
+  | `bk:${Baked}`
+
+/** Poly Haven scans already shrunk to game size in Blender (public/models/baked). */
+export type Baked =
+  | 'apartment_a' | 'apartment_b' | 'factory_a' | 'island_tree_01' | 'island_tree_02'
+  | 'coast_rocks_01' | 'coastal_cliff_02' | 'sand_rocks_small_01' | 'dutch_ship_large_01' | 'fort_tower'
+  | 'namaqualand_boulder_03' | 'searsia_lucida' | 'street_lamp_01' | 'celandine_01'
 
 interface Request { name: PropName; mats: THREE.Matrix4[]; parent: THREE.Object3D; tint?: THREE.Color; cast: boolean }
 
@@ -124,7 +131,9 @@ export class Props {
     if (!p) {
       const url = name.startsWith('dt:')
         ? `${import.meta.env.BASE_URL}models/downtown/${name.slice(3)}.gltf`
-        : `${import.meta.env.BASE_URL}models/polyhaven/${name}/${name}.gltf`
+        : name.startsWith('bk:')
+          ? `${import.meta.env.BASE_URL}models/baked/${name.slice(3)}.glb`
+          : `${import.meta.env.BASE_URL}models/polyhaven/${name}/${name}.gltf`
       p = this.loader.loadAsync(url).then((gltf) => {
         const root = gltf.scene
         root.updateMatrixWorld(true)
@@ -151,7 +160,8 @@ export class Props {
           const budget = (TRI_BUDGET[name] ?? 6000) * (tris / Math.max(1, total))
           // alpha-tested leaf cards must keep their uvs whole
           const cards = !!(mat as THREE.MeshStandardMaterial).alphaMap || (mat as THREE.Material).alphaTest > 0 || (mat as THREE.Material).transparent
-          if (tris > budget * 1.2) merged = simplify(merged, budget, cards)
+          // baked models were already reduced properly in Blender
+          if (!name.startsWith('bk:') && tris > budget * 1.2) merged = simplify(merged, budget, cards)
           const sm = mat as THREE.MeshStandardMaterial
           if (sm.isMeshStandardMaterial) {
             sm.envMapIntensity = 0.8

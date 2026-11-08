@@ -1,16 +1,33 @@
-import type { Game } from '../game/Game'
 import { CARS, CUPS, GRAND_TOUR, TRACKS, cupOpen, cupTrophies, saveCar, savedCar, trackById, type CarInfo, type CupInfo, type TrackInfo } from '../game/Catalog'
 import { CHALLENGES, doneChallenges } from '../game/Progress'
 
 type ScreenName = 'title' | 'car' | 'cups' | 'tracks' | 'trophies'
 type Mode = 'gp' | 'single'
+export type Difficulty = 'easy' | 'medium' | 'hard'
+
+export interface LobbyHost {
+  unlockAudio(): void
+  setCar(c: CarInfo): void | Promise<void>
+  preview(t: TrackInfo): Promise<void>
+  stopPreview(): Promise<void>
+  startCup(c: CupInfo, d: Difficulty): void
+  startTrack(t: TrackInfo, laps: number, d: Difficulty): void
+  startTour(): void
+}
 
 const CUP_ICON = '<svg viewBox="0 0 48 48" aria-hidden="true"><path d="M14 6h20v12a10 10 0 0 1-20 0V6Z"/><path d="M14 10H6v4a8 8 0 0 0 8 8M34 10h8v4a8 8 0 0 1-8 8" fill="none" stroke="currentColor" stroke-width="3"/><path d="M21 28h6v7h-6zM14 36h20v6H14z"/></svg>'
 const LOCK_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10V7a5 5 0 0 1 10 0v3h2v11H5V10h2Zm2 0h6V7a3 3 0 0 0-6 0v3Z"/></svg>'
 
+const stored = (key: string, fallback: string): string => {
+  try { return localStorage.getItem(key) ?? fallback } catch { return fallback }
+}
+const keep = (key: string, v: string): void => {
+  try { localStorage.setItem(key, v) } catch { /* storage blocked */ }
+}
+
 /**
  * The way into a race: title, then car, then cup or track. Picking a track
- * plays it live behind the menu. Only the Grand Tour can be raced so far.
+ * loads it and plays it live behind the menu.
  */
 export class Lobby {
   private readonly root = document.getElementById('lobby')!
@@ -23,8 +40,10 @@ export class Lobby {
   private car: CarInfo = savedCar()
   private cycle = 0
   private previewing = ''
+  private difficulty: Difficulty = stored('nitro-cosmos-difficulty', 'medium') as Difficulty
+  private laps = Number(stored('horizon-drive-laps', '3')) || 3
 
-  constructor(private readonly game: Game, private readonly onRace: () => void) {
+  constructor(private readonly host: LobbyHost) {
     this.on('go-gp', () => { this.mode = 'gp'; this.show('car') })
     this.on('go-single', () => { this.mode = 'single'; this.show('car') })
     this.on('go-trophies', () => this.show('trophies'))
@@ -41,9 +60,30 @@ export class Lobby {
     this.root.querySelectorAll<HTMLElement>('[data-back]').forEach((b) => b.addEventListener('click', () => this.back()))
     window.addEventListener('keydown', (e) => this.onKey(e))
     // sound can only start after the first press on the page
-    window.addEventListener('pointerdown', () => this.game.audio.unlock(), { once: true })
+    window.addEventListener('pointerdown', () => this.host.unlockAudio(), { once: true })
+    this.bindPickers()
     this.drawCars()
     this.show('title')
+  }
+
+  private bindPickers(): void {
+    const group = (sel: string, attr: string, current: string, set: (v: string) => void) => {
+      const btns = Array.from(this.root.querySelectorAll<HTMLButtonElement>(`${sel} .tod-btn`))
+      const mark = (v: string) => btns.forEach((b) => b.setAttribute('aria-checked', String(b.dataset[attr] === v)))
+      btns.forEach((b) => b.addEventListener('click', () => { mark(b.dataset[attr]!); set(b.dataset[attr]!) }))
+      mark(current)
+    }
+    for (const sel of ['#difficulty-picker', '#difficulty-picker-2']) {
+      group(sel, 'level', this.difficulty, (v) => {
+        this.difficulty = v as Difficulty
+        keep('nitro-cosmos-difficulty', v)
+        for (const other of ['#difficulty-picker', '#difficulty-picker-2']) this.root.querySelectorAll<HTMLElement>(`${other} .tod-btn`).forEach((b) => b.setAttribute('aria-checked', String(b.dataset['level'] === v)))
+      })
+    }
+    group('#laps-picker', 'laps', String(this.laps), (v) => { this.laps = Number(v); keep('horizon-drive-laps', v) })
+    group('#tod-picker', 'tod', stored('horizon-drive-tod', 'sunset'), (v) => keep('horizon-drive-tod', v))
+    group('#weather-picker', 'weather', stored('horizon-drive-weather', 'clear'), (v) => keep('horizon-drive-weather', v))
+    group('#ghost-picker', 'ghost', stored('horizon-drive-ghost-on', 'on'), (v) => keep('horizon-drive-ghost-on', v))
   }
 
   private on(id: string, fn: () => void): void {
@@ -125,7 +165,7 @@ export class Lobby {
     this.car = c
     saveCar(c.id)
     this.drawCars()
-    void this.game.setCar(c)
+    void this.host.setCar(c)
     this.root.querySelector<HTMLElement>('.car-card[aria-checked="true"]')?.focus({ preventScroll: true })
   }
 
@@ -133,22 +173,19 @@ export class Lobby {
   private preview(t: TrackInfo): void {
     if (this.previewing === t.id) return
     this.previewing = t.id
-    // a quick dip to black hides the jump to the other side of the world
+    if (!t.built || t.id === GRAND_TOUR.id) return
+    // a dip to black while the track loads
     this.fade.classList.add('on')
-    window.setTimeout(() => {
-      if (this.previewing === t.id) this.game.startPreview(t.zone, t.at)
-      window.setTimeout(() => this.fade.classList.remove('on'), 120)
-    }, 220)
+    void this.host.preview(t).then(() => {
+      if (this.previewing === t.id) this.fade.classList.remove('on')
+    })
   }
 
   private stopPreview(): void {
     if (!this.previewing) return
     this.previewing = ''
     this.fade.classList.add('on')
-    window.setTimeout(() => {
-      this.game.stopPreview()
-      window.setTimeout(() => this.fade.classList.remove('on'), 120)
-    }, 220)
+    void this.host.stopPreview().then(() => { if (!this.previewing) this.fade.classList.remove('on') })
   }
 
   private tile(t: TrackInfo, onPick: () => void, selected: boolean): HTMLButtonElement {
@@ -157,7 +194,7 @@ export class Lobby {
     b.style.setProperty('--a', t.tint[0])
     b.style.setProperty('--b', t.tint[1])
     b.setAttribute('aria-pressed', String(selected))
-    b.innerHTML = `<span class="track-name">${t.name}</span>${t.concept ? '<span class="track-tag">New idea</span>' : ''}`
+    b.innerHTML = `<span class="track-name">${t.name}</span>${t.built ? '' : '<span class="track-tag">Coming soon</span>'}`
     b.addEventListener('click', onPick)
     return b
   }
@@ -192,15 +229,18 @@ export class Lobby {
     }
     for (const id of c.races) races.append(this.tile(trackById(id), () => { window.clearInterval(this.cycle); show(id) }, false))
     ;(document.getElementById('cup-start') as HTMLButtonElement).disabled = !open
-    // the background walks through the cup's four tracks
-    let k = 0
     show(c.races[0]!)
-    window.clearInterval(this.cycle)
-    this.cycle = window.setInterval(() => { k = (k + 1) % c.races.length; show(c.races[k]!) }, 7000)
   }
 
   private startCup(): void {
-    this.showNotice(`${CUPS[this.cup]!.name} isn't built yet`, 'This is the menu only for now. The cup races come next, and each one will be 3 laps.')
+    const cup = CUPS[this.cup]!
+    if (cup.races.some((id) => !trackById(id).built)) {
+      this.showNotice(`${cup.name} isn't built yet`, 'Only the Comet and Nova Cups are ready so far.')
+      return
+    }
+    window.clearInterval(this.cycle)
+    this.previewing = ''
+    this.host.startCup(cup, this.difficulty)
   }
 
   // ── single race ──
@@ -223,8 +263,10 @@ export class Lobby {
   }
 
   private startTrack(): void {
-    if (this.track.built) { this.previewing = ''; this.onRace(); return }
-    this.showNotice(`${this.track.name} isn't built yet`, 'This is the menu only for now. The Grand Tour is ready to race.')
+    if (this.track.id === GRAND_TOUR.id) { this.host.startTour(); return }
+    if (!this.track.built) { this.showNotice(`${this.track.name} isn't built yet`, 'This one is still to come. The Comet and Nova Cup tracks and the Grand Tour are ready.'); return }
+    this.previewing = ''
+    this.host.startTrack(this.track, this.laps, this.difficulty)
   }
 
   private showNotice(title: string, text: string): void {

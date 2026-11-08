@@ -63,7 +63,7 @@ export class CarFx {
 
     // wind streaks flying past, only at real speed
     const k01 = THREE.MathUtils.smoothstep(speed, 0.55, 1.1)
-    ;(this.streaks.material as THREE.LineBasicMaterial).opacity = k01 * 0.3
+    ;(this.streaks.material as THREE.LineBasicMaterial).opacity = k01 * 0.11
     ;(this.streaks.material as THREE.LineBasicMaterial).color.copy(accent).lerp(new THREE.Color(1, 1, 1), 0.6)
     if (k01 > 0.01) {
       const len = 6 + speed * 12

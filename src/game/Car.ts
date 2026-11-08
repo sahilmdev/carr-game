@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import type { InputState } from '../engine/Input'
+import { AssetLoader } from './AssetLoader'
 
 export interface CarConfig {
   acceleration: number
@@ -36,7 +37,7 @@ function createCarPaint(): THREE.MeshPhysicalMaterial {
     roughness: 0.32,
     clearcoat: 1,
     clearcoatRoughness: 0.03,
-    envMapIntensity: 0.9,
+    envMapIntensity: 1.5,
   })
 }
 
@@ -86,7 +87,7 @@ export class Car {
   private paint = CAR_PAINT_COLOR
   private readonly headMats: THREE.MeshStandardMaterial[] = []
   private headlightLevel = 0
-  private readonly headlight: THREE.SpotLight
+  private readonly headlight: THREE.SpotLight | null = null
   /** Nitro tank 0–1 and whether it's firing this frame. */
   public nitro = 1
   public boosting = false
@@ -103,7 +104,8 @@ export class Car {
   private readonly _idealVelocity = new THREE.Vector3()
   private readonly _moveDir = new THREE.Vector3()
 
-  constructor(config: CarConfig = CAR_CONFIG) {
+  /** @param lite for rivals: no headlight beam, which would cost every material a light */
+  constructor(config: CarConfig = CAR_CONFIG, private readonly lite = false) {
     this.config = { ...config }
     this.position = new THREE.Vector3()
     this.velocity = new THREE.Vector3()
@@ -139,10 +141,12 @@ export class Car {
 
     // Headlights: one spot light (always present so toggling it never
     // recompiles shaders); intensity is driven by time of day.
-    this.headlight = new THREE.SpotLight(0xfff1dc, 0, 70, 0.55, 0.65, 1.4)
-    this.headlight.position.set(0, 0.75, -2.2)
-    this.headlight.target.position.set(0, -0.6, -24)
-    this.mesh.add(this.headlight, this.headlight.target)
+    if (!lite) {
+      this.headlight = new THREE.SpotLight(0xfff1dc, 0, 70, 0.55, 0.65, 1.4)
+      this.headlight.position.set(0, 0.75, -2.2)
+      this.headlight.target.position.set(0, -0.6, -24)
+      this.mesh.add(this.headlight, this.headlight.target)
+    }
     // The sharp camera-following shadow map draws the car's real shadow;
     // the blob decal in Game only adds a soft contact shadow under it.
     this.mesh.traverse((child) => {
@@ -359,14 +363,30 @@ export class Car {
   /** Road surface: extra sideways slip 0–1 (ice, mud) and drag in m/s². */
   surfaceSlip = 0
   surfaceDrag = 0
+  /** Kart races: brake past zero to reverse. */
+  canReverse = false
+  /** Kart races: the tank only fills from good driving. */
+  earnNitro = false
   /** Top speed multiplier for the area (tailwind on the salt). */
   topBonus = 1
   /** Seconds of extra launch acceleration left. */
   launch = 0
   /** True during a powerslide (brake + steer at speed). */
   drifting = false
+  /** Seconds held in the current powerslide. */
+  driftCharge = 0
+  /** Seconds of short boost left (a released drift, a boost strip). */
+  surge = 0
+  /** Set for one update when a drift pays out: 1, 2 or 3 by how long it was held. */
+  driftPaid = 0
   /** Steering after the tyres have taken up the input (-1..1). */
   private steerIn = 0
+
+  /** A short burst of speed. */
+  kick(seconds: number): void {
+    this.surge = Math.max(this.surge, seconds)
+    if (this.speed < this.config.maxSpeed) this.speed = Math.min(this.config.maxSpeed * 1.05, this.speed + 7)
+  }
 
   update(dt: number, input: InputState): void {
     const cfg = this.config
@@ -377,37 +397,49 @@ export class Car {
     // and lifts the top speed by 25%.
     this.boosting = !!input.nitro && this.nitro > 0.01 && !input.brake && this.speed > 3
     if (this.boosting) this.nitro = Math.max(0, this.nitro - dt / 4)
-    else this.nitro = Math.min(1, this.nitro + dt / 16)
-    const topSpeed = cfg.maxSpeed * (this.boosting ? 1.25 : 1) * this.topBonus
+    else if (!this.earnNitro) this.nitro = Math.min(1, this.nitro + dt / 16)
+    this.surge = Math.max(0, this.surge - dt)
+    const topSpeed = cfg.maxSpeed * (this.boosting ? 1.25 : this.surge > 0 ? 1.16 : 1) * this.topBonus
     this.launch = Math.max(0, this.launch - dt)
     const steerRaw = (input.left ? 1 : 0) - (input.right ? 1 : 0)
     // brake + steer at speed: a powerslide that scrubs little speed and earns nitro
     this.drifting = input.brake && steerRaw !== 0 && this.speed > 26
-    if (this.drifting) this.nitro = Math.min(1, this.nitro + dt * 0.1)
+    if (this.drifting) this.nitro = Math.min(1, this.nitro + dt * (this.earnNitro ? 0.2 : 0.1))
+    // kart rule: hold a slide, then let go for a kick. Longer slides pay more.
+    this.driftPaid = 0
+    if (this.drifting) this.driftCharge += dt
+    else {
+      if (this.earnNitro && this.driftCharge > 0.7) {
+        this.driftPaid = this.driftCharge > 2.2 ? 3 : this.driftCharge > 1.3 ? 2 : 1
+        this.kick(0.45 + this.driftPaid * 0.35)
+      }
+      this.driftCharge = 0
+    }
 
     // 1. Longitudinal — forward only, no reverse. Brake decelerates to 0.
     if (input.accelerate || this.boosting) {
       // Throttle only pushes up to the current top speed (never past it)
       if (this.speed < topSpeed) {
-        this.speed = Math.min(topSpeed, this.speed + (cfg.acceleration + (this.boosting ? 22 : 0) + (this.launch > 0 ? 16 : 0)) * dt)
+        this.speed = Math.min(topSpeed, this.speed + (cfg.acceleration + (this.boosting ? 22 : 0) + (this.surge > 0 ? 26 : 0) + (this.launch > 0 ? 16 : 0)) * dt)
       }
     } else if (input.brake) {
       this.speed -= (this.drifting ? 9 : cfg.braking) * dt
+      if (this.canReverse && this.speed < 0) this.speed = Math.max(-cfg.maxReverseSpeed, this.speed + (cfg.braking - 16) * dt)
     } else {
       this.speed *= Math.pow(1 - cfg.friction, dt * 60)
     }
     // Over the normal top speed after a boost: ease back down, don't snap
     if (this.speed > topSpeed) this.speed = Math.max(topSpeed, this.speed - 9 * dt)
-    if (this.surfaceDrag > 0) this.speed -= this.surfaceDrag * dt * Math.min(1, this.speed / 20)
-    this.speed = Math.max(0, this.speed)
+    if (this.surfaceDrag > 0 && this.speed > topSpeed * 0.7) this.speed -= this.surfaceDrag * dt * Math.min(1, this.speed / 20)
+    if (!this.canReverse) this.speed = Math.max(0, this.speed)
 
     // Flame flicker
-    this.flame.visible = this.boosting
-    if (this.boosting) {
+    this.flame.visible = this.boosting || this.surge > 0
+    if (this.flame.visible) {
       for (const f of this.flame.children) f.scale.set(1, 1, 0.75 + Math.random() * 0.6)
       this.flameMat.opacity = 0.7 + Math.random() * 0.3
     }
-    if (this.speed < 0.05 && !input.accelerate) this.speed = 0
+    if (Math.abs(this.speed) < 0.05 && !input.accelerate && !input.brake) this.speed = 0
 
     // 2. Steering — turn rate scales with speed
     const absSpeed = Math.abs(this.speed)
@@ -613,6 +645,25 @@ export class Car {
     Object.assign(this.config, CAR_CONFIG, stats)
   }
 
+  /**
+   * Merge the whole car into a few meshes: a rival costs a handful of draw
+   * calls instead of dozens. Its wheels stop turning, which nobody sees at speed.
+   */
+  bake(): void {
+    this.mesh.remove(this.flame)
+    this.mesh.rotation.set(0, 0, 0)
+    this.mesh.position.set(0, 0, 0)
+    this.mesh.updateMatrixWorld(true)
+    // the wheels stay separate so they can turn; everything else becomes a few meshes
+    const spinners = this.wheels.map((w) => ({ w, parent: w.parent! }))
+    for (const s of spinners) s.parent.remove(s.w)
+    const merged = AssetLoader.flatten(this.bodyGroup, true)
+    const keep = new Set(spinners.map((s) => s.parent))
+    for (const c of [...this.bodyGroup.children]) if (!keep.has(c)) this.bodyGroup.remove(c)
+    for (const s of spinners) s.parent.add(s.w)
+    this.bodyGroup.add(merged)
+  }
+
   /** Body colour (the player's chosen paint). */
   setPaint(hex: number): void {
     this.paint = hex
@@ -623,8 +674,10 @@ export class Car {
   setHeadlights(level: number): void {
     this.headlightLevel = level
     // Beam: brighter and longer-reaching when it's really dark
-    this.headlight.intensity = level * 140
-    this.headlight.distance = 55 + level * 45
+    if (this.headlight) {
+      this.headlight.intensity = level * 140
+      this.headlight.distance = 55 + level * 45
+    }
     for (const m of this.headMats) m.emissiveIntensity = 1.2 + level * 5
   }
 
@@ -660,6 +713,8 @@ export class Car {
     this.headMats.length = 0
     this.paintMats.length = 0
     while (this.bodyGroup.children.length) this.bodyGroup.remove(this.bodyGroup.children[0]!)
+    // front wheels sit in a steering group: without this the old car's wheels stay on
+    for (const w of this.frontWheels) this.mesh.remove(w)
     for (const w of this.wheels) this.mesh.remove(w)
     this.wheels.length = 0
     this.frontWheels.length = 0
@@ -714,7 +769,7 @@ export class Car {
     // (avoids matching auto-generated "-Mesh" child nodes twice)
     const wheelRoots: THREE.Object3D[] = []
     model.traverse((o) => {
-      if (!/wheel/i.test(o.name)) return
+      if (!/wheel/i.test(o.name) || /steer/i.test(o.name)) return
       if (o.parent && /wheel/i.test(o.parent.name)) return
       wheelRoots.push(o)
     })
@@ -763,7 +818,7 @@ export class Car {
           if (!(m instanceof THREE.MeshStandardMaterial)) continue
           m.envMapIntensity = 1
           // the HQ model's body shell ships near-black: give it a colour that reads on a dark road
-          if (m.name === 'Material.007') { m.color.set(this.paint); m.metalness = 0.45; m.roughness = 0.3; this.paintMats.push(m) }
+          if (m.name === 'Material.007' || /^paint/i.test(m.name)) { m.color.set(this.paint); m.metalness = 0.45; m.roughness = 0.3; m.map = null; this.paintMats.push(m) }
           // "Transmission" glass makes three.js render the whole scene a
           // second time every frame (~23 ms on a laptop GPU). Plain
           // transparency looks the same on small lamp lenses and windows.
@@ -878,13 +933,33 @@ export class Car {
     // roll and steer while staying part of the model's silhouette. `attach`
     // preserves each wheel's world transform. Front wheels get a steer group
     // (yaw) wrapping a spin group (roll); rear wheels just spin. ───
+    // Tyres and rims never take the body paint
+    if (!keepMaterials) {
+      const rubber = new THREE.MeshStandardMaterial({ color: 0x15161a, roughness: 0.62, metalness: 0.55 })
+      for (const w of wheelRoots) w.traverse((o) => {
+        const m = o as THREE.Mesh
+        if (m.isMesh && m.material === paint) m.material = rubber
+      })
+    }
+
+    // A wheel is often several parts (tyre, rim, brake disc). They must all turn
+    // about one hub, or they wobble round their own centres: one pivot per corner.
     let radiusSum = 0
+    const corners = new Map<string, THREE.Object3D[]>()
     for (const w of wheelRoots) {
-      const center = centerOf(w)
-      const size2 = new THREE.Vector3()
-      new THREE.Box3().setFromObject(w, true).getSize(size2)
+      const c = centerOf(w)
+      const key = `${Math.sign(c.x)},${Math.sign(c.z)}`
+      const list = corners.get(key) ?? []
+      list.push(w)
+      corners.set(key, list)
+    }
+    for (const parts of corners.values()) {
+      const box = new THREE.Box3()
+      for (const w of parts) box.union(new THREE.Box3().setFromObject(w, true))
+      const center = this.mesh.worldToLocal(box.getCenter(new THREE.Vector3()))
+      const size2 = box.getSize(new THREE.Vector3())
       radiusSum += Math.max(size2.y, 0.2) / 2
-      const isFront = isFrontWheel(w.name)
+      const isFront = center.z < 0
 
       const spin = new THREE.Group()
       if (isFront) {
@@ -898,10 +973,10 @@ export class Car {
         this.mesh.add(spin)
       }
       this.mesh.updateMatrixWorld(true)
-      spin.attach(w) // keeps world transform; wheel now spins about `center`
+      for (const w of parts) spin.attach(w) // keeps world transform; now turns about the hub
       this.wheels.push(spin)
     }
-    if (wheelRoots.length > 0) this.wheelRadius = radiusSum / wheelRoots.length
+    if (corners.size > 0) this.wheelRadius = radiusSum / corners.size
     this.setHeadlights(this.headlightLevel) // new model's lamp materials follow day/night
     this.setReflection(this.reflection)
 

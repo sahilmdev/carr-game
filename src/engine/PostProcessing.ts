@@ -7,6 +7,8 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js'
 import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js'
 import { FXAAShader } from 'three/addons/shaders/FXAAShader.js'
+import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js'
+import { CopyShader } from 'three/addons/shaders/CopyShader.js'
 
 export interface PostOptions {
   /** Screen-space ambient occlusion (contact shadows). The most expensive pass. */
@@ -15,6 +17,37 @@ export interface PostOptions {
   smaa: boolean
   /** Glow around lights and the sun. */
   bloom: boolean
+  /** Hardware antialiasing samples; replaces SMAA and FXAA when set. */
+  msaa?: number
+}
+
+/**
+ * The scene drawn into its own antialiased target, then copied into the
+ * chain. Only this one pass pays for the extra samples.
+ */
+class MsaaScenePass extends Pass {
+  private readonly target: THREE.WebGLRenderTarget
+  private readonly quad: FullScreenQuad
+  private readonly copy: THREE.ShaderMaterial
+
+  constructor(private readonly scene: THREE.Scene, private readonly camera: THREE.Camera, samples: number) {
+    super()
+    this.needsSwap = false
+    this.target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples })
+    this.copy = new THREE.ShaderMaterial({ uniforms: THREE.UniformsUtils.clone(CopyShader.uniforms), vertexShader: CopyShader.vertexShader, fragmentShader: CopyShader.fragmentShader, depthTest: false, depthWrite: false })
+    this.quad = new FullScreenQuad(this.copy)
+  }
+
+  override setSize(w: number, h: number): void { this.target.setSize(w, h) }
+
+  override render(r: THREE.WebGLRenderer, _write: THREE.WebGLRenderTarget, read: THREE.WebGLRenderTarget): void {
+    r.setRenderTarget(this.target)
+    r.clear()
+    r.render(this.scene, this.camera)
+    this.copy.uniforms['tDiffuse']!.value = this.target.texture
+    r.setRenderTarget(read)
+    this.quad.render(r)
+  }
 }
 
 /**
@@ -29,6 +62,7 @@ export class PostProcessing {
   private aoPass: GTAOPass | null = null
   private smaaPass: SMAAPass
   private fxaaPass: ShaderPass
+  private readonly msaa: boolean
 
   constructor(
     private readonly renderer: THREE.WebGLRenderer,
@@ -40,8 +74,9 @@ export class PostProcessing {
     const h = window.innerHeight
     // (EffectComposer's default buffers are HalfFloat, so bloom and tone
     // mapping see real HDR values.)
+    this.msaa = !!opts.msaa
     this.composer = new EffectComposer(renderer)
-    this.composer.addPass(new RenderPass(scene, camera))
+    this.composer.addPass(opts.msaa ? new MsaaScenePass(scene, camera, opts.msaa) : new RenderPass(scene, camera))
 
     this.bloomPass = new UnrealBloomPass(
       new THREE.Vector2(w, h),
@@ -72,8 +107,8 @@ export class PostProcessing {
     if (opts.ao && !this.aoPass) this.createAo()
     if (this.aoPass) this.aoPass.enabled = opts.ao
     this.bloomPass.enabled = opts.bloom
-    this.smaaPass.enabled = opts.smaa
-    this.fxaaPass.enabled = !opts.smaa
+    this.smaaPass.enabled = opts.smaa && !this.msaa
+    this.fxaaPass.enabled = !opts.smaa && !this.msaa
   }
 
   /** Created on first use: its buffers cost memory even while disabled. */
@@ -122,6 +157,7 @@ export class PostProcessing {
         uLift: { value: new THREE.Vector3(0, 0, 0) },
         uGain: { value: new THREE.Vector3(1, 1, 1) },
         uFlash: { value: new THREE.Vector4(1, 1, 1, 0) },
+        uSun: { value: new THREE.Vector3(0.5, 0.5, 0) },
       },
       vertexShader: /* glsl */ `
         varying vec2 vUv;
@@ -142,6 +178,7 @@ export class PostProcessing {
         uniform vec3 uLift;
         uniform vec3 uGain;
         uniform vec4 uFlash;
+        uniform vec3 uSun;
         varying vec2 vUv;
 
         float hash(vec2 p) {
@@ -157,10 +194,24 @@ export class PostProcessing {
           if (blur > 0.001) {
             vec2 toC = vUv - vec2(0.5, 0.56);
             float edge = smoothstep(0.12, 0.6, length(toC));
-            vec2 stepUv = toC * 0.022 * blur * edge;
+            vec2 stepUv = toC * 0.014 * blur * edge;
             vec3 acc = color;
             for (int i = 1; i < 8; i++) acc += texture2D(tDiffuse, vUv - stepUv * float(i)).rgb;
             color = acc / 8.0;
+          }
+
+          // Light shafts: bright sky seen past things, smeared away from the sun
+          if (uSun.z > 0.001) {
+            vec2 toSun = (uSun.xy - vUv) / 14.0;
+            vec2 q = vUv + toSun * hash(vUv * 91.7 + uTime);
+            float glow = 0.0;
+            for (int i = 0; i < 14; i++) {
+              vec3 s = texture2D(tDiffuse, q).rgb;
+              glow += smoothstep(0.72, 1.0, dot(s, vec3(0.333))) * (1.0 - float(i) / 20.0);
+              q += toSun;
+            }
+            float fall = smoothstep(1.05, 0.0, length((vUv - uSun.xy) * vec2(1.6, 1.0)));
+            color += vec3(1.0, 0.86, 0.68) * (glow / 14.0) * fall * uSun.z;
           }
 
           // Light saturation + contrast around mid-grey
@@ -207,6 +258,11 @@ export class PostProcessing {
   /** Full-screen colour flash (0 = none), for area transitions. */
   setFlash(r: number, g: number, b: number, a: number): void {
     ;(this.gradePass.uniforms['uFlash']!.value as THREE.Vector4).set(r, g, b, a)
+  }
+
+  /** Where the sun is on screen (0-1), and how strong its light shafts are. */
+  setSun(x: number, y: number, strength: number): void {
+    ;(this.gradePass.uniforms['uSun']!.value as THREE.Vector3).set(x, y, strength)
   }
 
   setSpeed(normalizedSpeed: number): void {

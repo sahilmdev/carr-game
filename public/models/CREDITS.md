@@ -18,8 +18,8 @@ CC0 needs no attribution. Sources are Poly Pizza model pages (which link the ori
 | `station.glb` | Space stations | [poly.pizza/m/0oBRDJ9Zl9](https://poly.pizza/m/0oBRDJ9Zl9) | CC-BY |
 | `satellite.glb` | Space satellites / ringed planet | [poly.pizza/m/0JHDsr640sL](https://poly.pizza/m/0JHDsr640sL) | CC-BY |
 | `rocket.glb` | Space rockets | [poly.pizza/m/1LSpWhScgwr](https://poly.pizza/m/1LSpWhScgwr) | CC-BY |
-| `car_sports.glb` | Kestrel (selectable car) | [poly.pizza/m/1mkmFkAz5v](https://poly.pizza/m/1mkmFkAz5v) | CC0 |
-| `car_80s.glb`, `car_aventador.glb` | Slider and Stiletto V12 (selectable cars); `arrow.glb`, `scifi.glb` are unused | Poly Pizza | CC-BY |
+| `car_sports.glb` | (unused backup) | [poly.pizza/m/1mkmFkAz5v](https://poly.pizza/m/1mkmFkAz5v) | CC0 |
+| `car_aventador.glb` | Stiletto V12 (selectable car); `car_80s.glb`, `arrow.glb`, `scifi.glb` are unused | Poly Pizza | CC-BY |
 
 ## Town biome (biome 1) dressing
 
@@ -84,3 +84,9 @@ tree_stump_01, utility_box_01, utility_box_02, water_manhole_cover, wild_rooibos
 - `nasa/*`: [NASA 3D Resources](https://github.com/nasa/NASA-3D-Resources), free to use under the NASA Images and Media Usage Guidelines. No endorsement by NASA is implied.
 - `polyhaven/*` additions: dutch_ship_medium, modular_wooden_pier, coastal_cliff_01, bronze_shark_statue, bronze_ray_statue, bronze_whale_statue, treasure_chest, cannon_01, ocean_buoy, lateral_sea_marker, wooden_barrels_01, namaqualand_cliff_02, modular_fire_escape (Poly Haven, CC0).
 - `../textures/biomes/*`: Poly Haven materials (CC0): coast_sand_01, aerial_sand, snow_02, forest_floor, moon_01, coral_gravel, mud_cracked_dry_03, brown_mud_leaves_01, volcanic_rock_tiles, rock_pitted_mossy.
+
+## Cars added for the kart races
+
+| File | Used for | Source | License |
+|------|----------|--------|---------|
+| `car_concept.glb` | Aurora (selectable car): "Car Concept" model | [KhronosGroup/glTF-Sample-Assets](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/CarConcept) | CC-BY 4.0 (credit required; excludes Khronos logos and trademarks) |

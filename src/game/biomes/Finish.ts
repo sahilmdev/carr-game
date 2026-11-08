@@ -291,7 +291,7 @@ export class Stadium implements Biome {
 }
 
 /** One fan: legs and body, a head, and arms that go up. Low detail, there are thousands. */
-function fanGeometry(): THREE.BufferGeometry {
+export function fanGeometry(): THREE.BufferGeometry {
   const tag = (g: THREE.BufferGeometry, skin: number, arm: number): THREE.BufferGeometry => {
     const n = g.getAttribute('position').count
     g.setAttribute('aSkin', new THREE.BufferAttribute(new Float32Array(n).fill(skin), 1))

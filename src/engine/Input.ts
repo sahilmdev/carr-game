@@ -5,6 +5,8 @@ export interface InputState {
   readonly right: boolean
   /** Nitro boost (Shift / N / touch). Optional so scripted inputs can omit it. */
   readonly nitro?: boolean
+  /** Use the held item (E / Q / touch). */
+  readonly item?: boolean
 }
 
 /** Keyboard + touch input, polled once per frame by the game loop. */
@@ -15,6 +17,7 @@ export class InputManager {
   private touchLeft = false
   private touchRight = false
   private touchNitro = false
+  private touchItem = false
 
   constructor() {
     window.addEventListener('keydown', this.onKeyDown)
@@ -37,6 +40,7 @@ export class InputManager {
   setTouchLeft(active: boolean) { this.touchLeft = active }
   setTouchRight(active: boolean) { this.touchRight = active }
   setTouchNitro(active: boolean) { this.touchNitro = active }
+  setTouchItem(active: boolean) { this.touchItem = active }
 
   /** True while a key is held (photo-mode camera controls). */
   isDown(code: string): boolean { return !!this.keys[code] }
@@ -48,6 +52,7 @@ export class InputManager {
       left: !!(this.keys['ArrowLeft'] || this.keys['KeyA'] || this.touchLeft),
       right: !!(this.keys['ArrowRight'] || this.keys['KeyD'] || this.touchRight),
       nitro: !!(this.keys['ShiftLeft'] || this.keys['ShiftRight'] || this.keys['KeyN'] || this.touchNitro),
+      item: !!(this.keys['KeyE'] || this.keys['KeyQ'] || this.touchItem),
     }
   }
 

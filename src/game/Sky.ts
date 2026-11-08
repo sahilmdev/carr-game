@@ -55,6 +55,8 @@ export class SkySystem {
   public sunStrength = 1
   /** True once a photographed HDRI replaced the procedural sky. */
   public usingHdri = false
+  /** Off: always use the generated sky, even where a photograph is loaded. */
+  public usePhotos = true
   /** 0 = day, 1 = night (stars, moon, street lights). */
   public night = 0
   /** 0 = clear, 1 = raining (overcast, wet). */
@@ -295,6 +297,11 @@ export class SkySystem {
    * Switch time of day (procedural sky only — an HDRI photo has a fixed sun).
    * Re-bakes the sky, lighting environment and haze. Returns false if ignored.
    */
+  /** Show or hide the sky dome and its stars; lighting stays. */
+  setVisible(on: boolean): void {
+    this.mesh.visible = on
+  }
+
   setTimeOfDay(tod: TimeOfDay): boolean {
     return this.setConditions(tod, this.rain > 0.5)
   }
@@ -309,7 +316,7 @@ export class SkySystem {
     const u = this.material.uniforms
     this.tod = tod
     // A photographed sky for this time of day? Use it (weather on top).
-    const photo = this.hdri.get(tod)
+    const photo = this.usePhotos ? this.hdri.get(tod) : undefined
     if (photo) {
       this.night = 0
       u['uNight']!.value = 0

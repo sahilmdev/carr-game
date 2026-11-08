@@ -35,7 +35,7 @@ export class AssetLoader {
    * Skipped for anything whose node names are load-bearing (e.g. the car,
    * whose wheels are found by name and reparented into spin/steer pivots).
    */
-  private static flatten(root: THREE.Object3D): THREE.Group {
+  static flatten(root: THREE.Object3D, unindex = false): THREE.Group {
     root.updateMatrixWorld(true)
     const byMat = new Map<THREE.Material, THREE.BufferGeometry[]>()
     const leftovers: THREE.Mesh[] = []
@@ -46,7 +46,7 @@ export class AssetLoader {
       // Multi-material meshes keep their own draw calls — rare, not worth the
       // complexity of splitting geometry groups.
       if (Array.isArray(mesh.material)) { leftovers.push(mesh); return }
-      const geo = mesh.geometry.clone()
+      const geo = unindex && mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry.clone()
       geo.applyMatrix4(mesh.matrixWorld)
       // Normalise attributes so merges never fail on a missing uv/normal.
       if (!geo.getAttribute('normal')) geo.computeVertexNormals()
