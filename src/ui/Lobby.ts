@@ -93,6 +93,12 @@ export class Lobby {
   get open(): boolean { return !document.getElementById('splash')!.classList.contains('hidden') }
 
   /** Back to the title after a race. */
+  /** Straight to the track list (after a single race: pick another without redoing the car). */
+  openTracks(): void {
+    this.mode = 'single'
+    this.show('tracks')
+  }
+
   reset(): void {
     this.previewing = ''
     this.show('title')
@@ -150,7 +156,17 @@ export class Lobby {
       list.append(b)
     }
     document.getElementById('car-name')!.textContent = this.car.name
-    document.getElementById('car-blurb')!.textContent = this.car.blurb
+    const blurb = document.getElementById('car-blurb')!
+    blurb.textContent = this.car.blurb
+    // the model's author, as its licence asks
+    let credit = document.getElementById('car-credit')
+    if (!credit) {
+      credit = document.createElement('p')
+      credit.id = 'car-credit'
+      credit.style.cssText = 'margin-top:6px;font-size:12px;opacity:0.6'
+      blurb.after(credit)
+    }
+    credit.textContent = this.car.credit ? `Model: ${this.car.credit}` : ''
     const bars = document.getElementById('car-bars')!
     bars.innerHTML = ''
     for (const [label, v] of [['Top speed', this.car.bars.speed], ['Acceleration', this.car.bars.accel], ['Grip', this.car.bars.grip], ['Drift', this.car.bars.drift]] as const) {

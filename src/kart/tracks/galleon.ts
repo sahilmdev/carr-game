@@ -4,7 +4,9 @@ import { Mesher, place, surface } from '../art/arch'
 import { forest } from '../art/foliage'
 import { mountainRing } from '../art/terrain'
 import type { BuildKit, TrackDef } from '../types'
-import { arrows, crates, drift, gantry, glow, glowStreak, mist, stands } from './parts'
+import type { Circuit } from '../Circuit'
+import type { Zone } from '../World'
+import { arrows, crates, drift, gantry, glow, glowStreak, mist, roadZones, stands, edgeLights } from './parts'
 
 /** The two wrecks the road runs along: stern and bow ends, as x ranges at a rough z. */
 const SHIPS = [
@@ -30,12 +32,17 @@ function sailTexture(): THREE.CanvasTexture {
   })
 }
 
-/**
- * Ghost Galleon Bay: off the harbour quay onto the piers, up a gangway into
- * the stern castle of a great wreck and along its deck under the masts, then a
- * leap from the bow to the next ship. Down through the sea cave on the islet
- * and back over the low causeway. On the second lap the tide comes in over
- * the causeway; on the last a phantom galleon sails the bay, firing.
+/*
+ * Ghost Galleon Bay: along the harbour quay and up through the town to the
+ * lighthouse on the headland, then off the cliff on wings down to the piers
+ * (or straight across the cove on the rope bridge). Up the gangway into the
+ * great wreck's stern castle and along its deck under the masts, a leap from
+ * the bow to the next wreck, and a boosted leap off the broken pier onto the
+ * islet. Through the sea cave, over the causeway and up round the west
+ * hills (or through the smugglers' tunnel under them) back to the harbour.
+ *
+ * Lap 2: the tide comes in over the causeway. Last lap: a phantom galleon
+ * sails the bay, firing.
  */
 export const galleon: TrackDef = {
   id: 'galleon',
@@ -54,38 +61,85 @@ export const galleon: TrackDef = {
   look: {
     tod: 'night', generatedSky: true, top: [0.01, 0.03, 0.04], horizon: [0.06, 0.18, 0.18], mix: 0.9, stars: 0.8,
     fog: [0.06, 0.16, 0.15], fogDensity: 0.0024, fogBase: 2, fogFall: 0.035, sunGlow: 0.3,
-    exposure: 1.5, sun: 1.2, hemi: 1.25, bloom: 0.58, wet: 0.6, headlights: 1, env: 0.7,
+    exposure: 1.6, sun: 1.35, hemi: 1.9, bloom: 0.6, wet: 0.6, headlights: 1, env: 0.8,
     grade: [0.95, 1.12, 0.004, 0.012, 0.012, 0.96, 1.04, 1.02, 0.4],
   },
   points: [
-    [0, 2.5, 0],
-    [110, 2.5, -4, { pad: 0 }],
-    [178, 2.6, -28],
-    [218, 3, -80, { raised: true, deck: 'wood', rail: 'LR' }],
-    [232, 4.5, -150, { raised: true, deck: 'wood', rail: 'LR' }],
-    [206, 8, -208, { raised: true, deck: 'wood', rail: 'LR' }],
+    [0, 2.5, 0, { w: 18 }],
+    [120, 2.5, -4, { pad: 0 }],
+    [215, 2.4, 22],
+    [275, 2.2, 75],
+    [335, 9, 118, { items: true }],
+    [345, 13, 200],
+    [430, 19, 190],
+    [470, 23, 100],
+    [445, 27, 0],
+    [436, 28, -76, { pad: 0, rail: '' }],
+    [432, 29, -88, { gap: true, glide: true }],
+    [410, 21, -126, { gap: true, glide: true }],
+    [388, 14, -164, { gap: true, glide: true }],
+    [374, 10, -190, { gap: true, glide: true }],
+    [360, 7, -214, { raised: true, deck: 'wood', w: 26, rail: 'LR' }],
+    [292, 6, -212, { raised: true, deck: 'wood', rail: 'LR' }],
+    [206, 8, -214, { raised: true, deck: 'wood', rail: 'LR' }],
     [150, 8, -222, { raised: true, deck: 'wood', rail: '' }],
     [92, 8, -224, { raised: true, deck: 'wood', rail: '', pad: 0 }],
-    // the bow sweeps up into a kicker; the second wreck sits lower in the water
     [40, 10, -220, { raised: true, deck: 'wood', rail: '' }],
     [-4, 13, -210, { gap: true }],
     [-44, 5, -198, { raised: true, deck: 'wood', rail: '' }],
-    [-104, 6, -178, { raised: true, deck: 'wood', rail: '' }],
-    [-150, 4, -142, { raised: true, deck: 'wood', rail: 'LR' }],
-    [-186, 4, -92],
-    [-196, 3.6, -26],
-    [-160, 1.6, 34],
-    [-90, 1.8, 46],
-    [-42, 2.5, 16],
+    [-90, 6, -182, { raised: true, deck: 'wood', rail: '', pad: 0 }],
+    [-118, 6, -158, { raised: true, deck: 'wood', rail: '', pad: 0 }],
+    [-142, 9.3, -134, { gap: true }],
+    [-161, 7.3, -115, { gap: true }],
+    [-190, 5.3, -86, { raised: true, w: 20 }],
+    [-205, 4, -60],
+    [-200, 3.6, -6, { items: true }],
+    [-250, 1.8, 50],
+    [-330, 3.5, 112],
+    [-420, 10.6, 190],
+    [-520, 18.7, 300],
+    [-480, 20.4, 450],
+    [-320, 20.4, 510, { items: true }],
+    [-160, 20.4, 470],
+    [-50, 20.3, 350],
+    [-100, 11.4, 200],
+    [-90, 2.2, 80],
+    [-40, 2.5, 22],
   ],
+  branches: [
+    {
+      // the rope bridge: down off the headland and across the cove instead of the glide, narrow and swaying
+      name: 'Rope bridge', from: 8, to: 15, odds: 0.4,
+      points: [
+        [412, 24, -40, { raised: true, deck: 'wood', w: 10, rail: 'LR' }],
+        [352, 14, -112, { raised: true, deck: 'wood', w: 10, rail: 'LR' }],
+        [312, 8, -168, { raised: true, deck: 'wood', w: 11, rail: 'LR' }],
+      ],
+    },
+    {
+      // the smugglers' tunnel, under the far corner of the west hills
+      name: "Smugglers' tunnel", from: 32, to: 36, odds: 0.4,
+      points: [
+        [-450, 13, 330, { tunnel: true, rail: 'LR', w: 13 }],
+        [-320, 12, 362, { tunnel: true, rail: 'LR', w: 13, items: true }],
+        [-180, 14, 352, { tunnel: true, rail: 'LR', w: 13 }],
+      ],
+    },
+  ],
+
   ground(x, z) {
     const n = fbm2(x * 0.01, z * 0.01)
-    // the harbour shore and the town hill behind it
-    const shore = smooth(-34, -8, z) * smooth(-130, -70, x) * smooth(330, 260, x)
-    const town = smooth(30, 140, z) * 24 * shore
+    // the harbour shore and the town hills behind it, the west shore round the bay
+    const east = smooth(-34, -8, z) * smooth(-130, -70, x) * smooth(330, 260, x)
+    const west = smooth(70, 120, z) * smooth(-560, -500, x)
+    const land = Math.max(east, west)
+    const hills = smooth(40, 360, z) * 18 * land
+    // the headland the lighthouse stands on
+    const dh = Math.hypot(x - 440, z + 10)
+    const head = 28 * smooth(150, 70, dh) + 16 * smooth(150, 110, dh)
     const islet = Math.max(0, 1 - Math.hypot((x - ISLET.x) / ISLET.r, (z - ISLET.z) / (ISLET.r * 1.3)))
-    const far = smooth(500, 800, Math.hypot(x, z + 100)) * (30 + n * 80)
-    return -14 + shore * 16 + town + Math.pow(islet, 0.6) * 30 + far + n * 3
+    const far = smooth(820, 1100, Math.hypot(x + 20, z - 100)) * (30 + n * 80)
+    return Math.max(-14 + land * 16 + hills, -14 + head) + Math.pow(islet, 0.6) * 30 + far + n * 3
   },
   splat(_x, _z, h, slope, roadDist, mix, tint) {
     const rock = smooth(0.5, 0.9, slope)
@@ -103,14 +157,16 @@ export const galleon: TrackDef = {
     gantry(k, 'Ghost Galleon Bay', '#4ad0b0')
     stands(k, 8, 40, 1, [0x2a4a48, 0x4ad0b0, 0xc8c0b0, 0x2a2e38, 0x6a5a48], 0x4ad0b0, 'Ghost Galleon Bay')
     arrows(k, GHOST)
-    mountainRing(root, 0, -100, { inner: 1000, outer: 2800, height: 260, rock: 0x1a2426, seed: 51 })
+    // the deck's lantern line, carried on round the whole lap
+    edgeLights(k, new THREE.Color(0.35, 1, 0.75), { spacing: 12, pool: 0.28 })
+    mountainRing(root, -20, 100, { inner: 1250, outer: 3000, height: 260, rock: 0x1a2426, seed: 51 })
 
-    const plank = new Mesher(), hull = new Mesher(), iron = new Mesher(), sails: THREE.Matrix4[] = []
+    const plank = new Mesher()
     const lanterns: THREE.Matrix4[] = []
     // ── piers: pilings and cross-bracing under every raised wooden stretch off the ships
     const onShip = (x: number, z: number) => SHIPS.some((s) => x > s.x0 - 4 && x < s.x1 + 4 && Math.abs(z - s.z) < 26)
-    for (let i = 0; i < c.count; i += 3) {
-      if (!c.raised[i] || c.gap[i]) continue
+    for (const c of k.circuit.all) for (let i = 0; i < c.count; i += 3) {
+      if (!c.raised[i] || c.gap[i] || c.tunnel[i]) continue
       const p = c.samples[i]!, r = c.rights[i]!, t = c.tangents[i]!, half = c.widths[i]! / 2, yaw = Math.atan2(-t.x, -t.z)
       if (onShip(p.x, p.z)) continue
       plank.box(c.widths[i]! + 1.6, 0.5, 6.4, p.x, p.y - 0.5, p.z, 0x4a3a2a, yaw)
@@ -123,9 +179,12 @@ export const galleon: TrackDef = {
       if (i % 12 === 0) plank.bar(new THREE.Vector3(p.x + r.x * half, -1, p.z + r.z * half), new THREE.Vector3(p.x - r.x * half, p.y - 1, p.z - r.z * half), 0.14, 0x3a2e22, 5)
     }
 
+    const sailMat = new THREE.MeshStandardMaterial({ map: sailTexture(), transparent: true, side: THREE.DoubleSide, depthWrite: false, color: 0xb8d8cc, emissive: new THREE.Color(0x0a3a2a), roughness: 0.9, opacity: 0.5 })
+    const rollers: { pivot: THREE.Group; sgn: number; ph: number }[] = []
     // ── the wrecks: hull sides under the deck road, masts, yards and rags of sail
     for (const s of SHIPS) {
       const len = s.x1 - s.x0
+      const sh = new Mesher(), si = new Mesher(), ss: THREE.Matrix4[] = []
       for (let i = 0; i < c.count; i += 2) {
         const p = c.samples[i]!
         if (c.gap[i] || p.x < s.x0 || p.x > s.x1 || Math.abs(p.z - s.z) > 26) continue
@@ -136,8 +195,8 @@ export const galleon: TrackDef = {
         for (const sd of [-1, 1]) {
           const x = p.x + r.x * sd * beam, z = p.z + r.z * sd * beam
           // the hull: planked sides that tuck in towards the keel
-          hull.box(0.6, p.y + 6, 4.5, x - r.x * sd * 1.2, (p.y + 1.4 - 6) / 2 - 0.4, z - r.z * sd * 1.2, (i / 2) % 2 ? 0x3a2a1e : 0x32261a, yaw, sd * 0.18)
-          hull.box(0.5, 1.6, 4.5, x, p.y + 0.6, z, 0x4a3828, yaw)
+          sh.box(0.6, p.y + 6, 4.5, x - r.x * sd * 1.2, (p.y + 1.4 - 6) / 2 - 0.4, z - r.z * sd * 1.2, (i / 2) % 2 ? 0x3a2a1e : 0x32261a, yaw, sd * 0.18)
+          sh.box(0.5, 1.6, 4.5, x, p.y + 0.6, z, 0x4a3828, yaw)
           w.addBox(x, z, 0.5, 2.3, yaw, p.y + 1.6)
         }
         if (i % 8 === 0) for (const sd of [-1, 1]) lanterns.push(trs(p.x + r.x * sd * beam, p.y + 2, p.z + r.z * sd * beam, 0, 0.26))
@@ -145,40 +204,47 @@ export const galleon: TrackDef = {
       // three masts, set against the rails so the deck stays clear
       for (const [mu, side, tall] of [[0.2, 1, 30], [0.5, -1, 40], [0.8, 1, 34]] as const) {
         const x = s.x0 + len * mu
-        let i = c.track(x, s.z, Math.floor(c.count * 0.4), Math.floor(c.count / 2))
+        let i = c.track(x, s.z, 0, c.count, s.deck)
         i = Math.max(0, i)
         const p = c.samples[i]!, r = c.rights[i]!, t = c.tangents[i]!, half = c.widths[i]! / 2
         const mx = p.x + r.x * side * (half + 0.4), mz = p.z + r.z * side * (half + 0.4)
-        iron.post(0.55, 0.42, tall, mx, p.y - 0.5, mz, 0x2e241a, 10)
+        si.post(0.55, 0.42, tall, mx, p.y - 0.5, mz, 0x2e241a, 10)
         w.addPost(mx, mz, 0.7)
         // yards over the road, with torn sails hanging below them
         for (const yh of [tall * 0.5, tall * 0.8]) {
           const yaw = Math.atan2(-t.x, -t.z)
-          iron.box(c.widths[i]! + 10, 0.4, 0.4, p.x, p.y + yh, p.z, 0x2e241a, yaw)
-          sails.push(new THREE.Matrix4().compose(new THREE.Vector3(p.x, p.y + yh - 4.6, p.z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, yaw, 0)), new THREE.Vector3(c.widths[i]! + 6, 8.6, 1)))
+          si.box(c.widths[i]! + 10, 0.4, 0.4, p.x, p.y + yh, p.z, 0x2e241a, yaw)
+          ss.push(new THREE.Matrix4().compose(new THREE.Vector3(p.x, p.y + yh - 4.6, p.z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, yaw, 0)), new THREE.Vector3(c.widths[i]! + 6, 8.6, 1)))
         }
         lanterns.push(trs(mx, p.y + tall + 0.6, mz, 0, 0.4))
       }
       // the stern castle: the road drives in under its gallery
       {
-        const i = c.track(s.stern - 6, s.z, Math.floor(c.count * 0.4), Math.floor(c.count / 2))
+        const i = c.track(s.stern - 6, s.z, 0, c.count, s.deck)
         const p = c.samples[i]!, r = c.rights[i]!, t = c.tangents[i]!, half = c.widths[i]! / 2, yaw = Math.atan2(-t.x, -t.z)
         for (const sd of [-1, 1]) {
           const x = p.x + r.x * sd * (half + 1.6), z = p.z + r.z * sd * (half + 1.6)
-          hull.box(2.4, 10, 14, x, p.y + 4.6, z, 0x3a2a1e, yaw)
+          sh.box(2.4, 10, 14, x, p.y + 4.6, z, 0x3a2a1e, yaw)
           w.addBox(x, z, 1.2, 7, yaw)
         }
-        hull.box(c.widths[i]! + 6, 1.4, 14, p.x, p.y + 9.4, p.z, 0x2e2218, yaw)
-        hull.box(c.widths[i]! + 7, 5, 6, p.x, p.y + 12.6, p.z, 0x3a2a1e, yaw)
+        sh.box(c.widths[i]! + 6, 1.4, 14, p.x, p.y + 9.4, p.z, 0x2e2218, yaw)
+        sh.box(c.widths[i]! + 7, 5, 6, p.x, p.y + 12.6, p.z, 0x3a2a1e, yaw)
         for (let q = -2; q <= 2; q++) lanterns.push(trs(p.x + r.x * q * 3 + t.x * 3.2, p.y + 12.6, p.z + r.z * q * 3 + t.z * 3.2, 0, new THREE.Vector3(0.9, 1.4, 0.2)))
       }
+      // everything above the deck rocks about the keel line, as one
+      const pivot = new THREE.Group()
+      const mid = c.track((s.x0 + s.x1) / 2, s.z, 0, c.count, s.deck)
+      const pv = c.samples[Math.max(0, mid)]!
+      pivot.position.set(pv.x, pv.y - 1, pv.z)
+      root.add(pivot)
+      for (const m of [place(k, sh, surface('wood', { rough: 0.9 })), place(k, si, surface('wood', { rough: 0.7 }))]) { pivot.add(m); m.position.set(-pv.x, -(pv.y - 1), -pv.z) }
+      const sm = d.instanced(new THREE.PlaneGeometry(1, 1, 6, 4), sailMat, ss, false)
+      sm.frustumCulled = false
+      pivot.add(sm)
+      sm.position.set(-pv.x, -(pv.y - 1), -pv.z)
+      rollers.push({ pivot, sgn: Math.sign(c.rights[Math.max(0, mid)]!.z) || 1, ph: s.x0 * 0.01 })
     }
     place(k, plank, surface('wood'))
-    place(k, hull, surface('wood', { rough: 0.9 }))
-    place(k, iron, surface('wood', { rough: 0.7 }))
-    const sailMat = new THREE.MeshStandardMaterial({ map: sailTexture(), transparent: true, side: THREE.DoubleSide, depthWrite: false, color: 0xb8d8cc, emissive: new THREE.Color(0x0a3a2a), roughness: 0.9, opacity: 0.5 })
-    const sailMesh = d.instanced(new THREE.PlaneGeometry(1, 1, 6, 4), sailMat, sails, false)
-    sailMesh.frustumCulled = false
     // the jump lip off the bow
     const lip = new Mesher()
     for (let i = 0; i < c.count; i++) {
@@ -226,8 +292,8 @@ export const galleon: TrackDef = {
     for (let x = -60; x < 260; x += 6) quay.box(6.2, 6, 3, x, -1, -14 + Math.sin(x * 0.02) * 2, 0x4a4e4a)
     place(k, quay, surface('stone'))
     const town = new Mesher(), roofs = new Mesher(), litWin: THREE.Matrix4[] = []
-    for (let q = 0; q < 46; q++) {
-      const x = -80 + d.rand() * 360, z = 30 + d.rand() * 120
+    for (let q = 0; q < 140; q++) {
+      const x = q < 46 ? -80 + d.rand() * 360 : -480 + d.rand() * 420, z = q < 46 ? 30 + d.rand() * 120 : 140 + d.rand() * 340
       if (d.roadGap(x, z) < 12 || w.blocked(x, z, 7)) continue
       const y = w.terrainAt(x, z), wd = 7 + d.rand() * 5, dp = 6 + d.rand() * 4, h = 6 + d.rand() * 7, yaw = (d.rand() - 0.5) * 0.4
       town.box(wd, h, dp, x, y + h / 2, z, [0x5a5248, 0x4e4a44, 0x625a50][q % 3]!, yaw)
@@ -240,13 +306,95 @@ export const galleon: TrackDef = {
     d.instanced(new THREE.PlaneGeometry(1, 1), glow(3, 1.8, 0.7), litWin, false)
     const tint = new THREE.Color(0.55, 0.8, 0.7)
     d.prop('bk:dutch_ship_large_01', [trs(260, -1.5, -360, 1.2, 1.4, 0.08), trs(-320, -1.5, -250, 2.4, 1.2, -0.12)], 0, tint, 0)
-    d.prop('dutch_ship_medium', [trs(120, -2.5, -330, 0.4, 2.2, 0.3), trs(-280, -2, 80, 1.9, 1.8, -0.22)], 0, tint, 0)
+    d.prop('dutch_ship_medium', [trs(120, -2.5, -330, 0.4, 2.2, 0.3), trs(-380, -2, -60, 1.9, 1.8, -0.22)], 0, tint, 0)
     d.prop('bk:coast_rocks_01', d.spots(14, 8, 60, { clear: 10 }).map((s) => trs(s.x, Math.min(s.y, 0.4) - 1, s.z, d.rand() * 6, 0.24)), 0, undefined, 420)
     d.prop('wooden_barrels_01', d.spots(16, 2, 7, { from: 0, to: 0.14, clear: 2 }).map((s) => trs(s.x, s.y, s.z, d.rand() * 6, 1.3)), 0.8)
     d.prop('lateral_sea_marker', [trs(60, 0, -120, 0, 2), trs(-80, 0, -110, 1, 2)])
     crates(d, d.spots(16, 2, 7, { from: 0.02, to: 0.15, clear: 1.6 }), 0x6a5a40)
     forest(k, 'dead', d.spots(30, 10, 60, { clear: 8, test: (_x, _z, y) => y > 4 }), { scale: [0.8, 1.2] })
     mist(k, Array.from({ length: 60 }, () => new THREE.Vector3(-300 + d.rand() * 600, 2 + d.rand() * 3, -380 + d.rand() * 460)), [30, 60], 0x6aa898, 0.14)
+    tunnelShell(k, k.circuit.branches[1]!)
+    // the wrecks roll on the swell: on their decks you slide with the roll,
+    // one way then the other, harder once the tide is in
+    {
+      const decks: { z: Zone; rx: number; rz: number; ph: number }[] = []
+      for (const s of SHIPS) {
+        let a = -1
+        for (let i = 0; i <= c.count; i++) {
+          const p = c.samples[i % c.count]!
+          const on = i < c.count && p.x > s.x0 && p.x < s.x1 && Math.abs(p.z - s.z) < 26 && !c.gap[i]
+          if (on && a < 0) a = i
+          if (!on && a >= 0) { for (const q of roadZones(k, c, a, i, 8)) decks.push({ ...q, ph: s.x0 * 0.01 }); a = -1 }
+        }
+      }
+      let t = 0
+      k.onFrame((f) => {
+        t += f.dt
+        const amp = f.lap >= 2 ? 4.2 : 3
+        // the hulls lean the way the deck pushes you
+        for (const r of rollers) r.pivot.rotation.x = Math.sin(t * 0.55 + r.ph) * (f.lap >= 2 ? 0.075 : 0.055) * r.sgn
+        for (const d of decks) {
+          const roll = Math.sin(t * 0.55 + d.ph) * amp
+          d.z.on = true
+          d.z.vx = d.rx * roll
+          d.z.vz = d.rz * roll
+        }
+      })
+    }
+    // waves breaking over the low causeway: every few seconds a sea comes
+    // across and shoves you towards the far side. Bigger and more often with
+    // the tide in.
+    {
+      const P = galleon.points
+      const at = (n: number) => c.track(P[n]![0], P[n]![2], 0, c.count, P[n]![1])
+      const sea = roadZones(k, c, at(26), at(28), 10)
+      const foamMat = new THREE.MeshBasicMaterial({ color: 0xd8f4ec, transparent: true, opacity: 0, depthWrite: false })
+      const foams = sea.map((q) => {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(3, 1.6, q.z.hz! * 2.2), foamMat)
+        m.rotation.y = Math.atan2(q.fx, q.fz)
+        root.add(m)
+        return m
+      })
+      let t = 0
+      k.onFrame((f) => {
+        t += f.dt
+        const tide = f.lap >= 2
+        const every = tide ? 4 : 5.5, u = (t % every) / 1.4
+        const live = u < 1
+        for (let n = 0; n < sea.length; n++) {
+          const q = sea[n]!, m = foams[n]!
+          const lat = (u - 0.5) * (q.z.hx! * 2 + 16)
+          const y = c.samples[c.track(q.z.x, q.z.z, 0, c.count)]!.y
+          m.position.set(q.z.x + q.rx * lat, y + 0.6, q.z.z + q.rz * lat)
+          q.z.on = live && Math.abs(lat) < q.z.hx! + 2
+          const push = tide ? 7 : 5
+          q.z.vx = q.rx * push
+          q.z.vz = q.rz * push
+        }
+        foamMat.opacity = live ? 0.85 * Math.sin(Math.min(1, u) * Math.PI) : 0
+      })
+    }
+    // the lighthouse on the headland, its beam sweeping the bay
+    const LX = 478, LZ = -20, LY = w.terrainAt(LX, LZ)
+    const tower = new Mesher()
+    tower.add(new THREE.CylinderGeometry(4, 5.5, 30, 16), trs(LX, LY + 15, LZ), 0xd8d4cc)
+    for (let q = 0; q < 3; q++) tower.add(new THREE.CylinderGeometry(4.6 - q * 0.4, 4.9 - q * 0.4, 3, 16), trs(LX, LY + 5 + q * 9, LZ), 0xa83a2a)
+    tower.add(new THREE.CylinderGeometry(4.6, 4.6, 1, 16), trs(LX, LY + 30.5, LZ), 0x2a2e34)
+    tower.add(new THREE.ConeGeometry(4, 4, 16), trs(LX, LY + 37, LZ), 0x2a2e34)
+    place(k, tower, surface('plaster'))
+    w.addPost(LX, LZ, 6)
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(2.4, 12, 8), glow(5, 4.6, 3))
+    lamp.position.set(LX, LY + 33, LZ)
+    root.add(lamp)
+    const beam = new THREE.Mesh(new THREE.ConeGeometry(14, 260, 20, 1, true), new THREE.MeshBasicMaterial({ color: new THREE.Color(1, 1, 0.8), transparent: true, opacity: 0.08, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, toneMapped: false }))
+    beam.geometry.translate(0, -130, 0)
+    beam.geometry.rotateZ(Math.PI / 2)
+    const beamPivot = new THREE.Group()
+    beamPivot.position.copy(lamp.position)
+    beamPivot.add(beam)
+    root.add(beamPivot)
+    k.onFrame((f) => { beamPivot.rotation.y = f.time * 0.6 })
+
     // the moon, low over the water
     const moon = new THREE.Mesh(new THREE.SphereGeometry(70, 24, 16), new THREE.MeshBasicMaterial({ color: new THREE.Color(1.4, 1.6, 1.5), fog: false, toneMapped: false }))
     moon.position.set(600, 380, -1500)
@@ -303,4 +451,35 @@ export const galleon: TrackDef = {
       }
     })
   },
+}
+
+/** The smugglers' tunnel: a rough rock bore, shored with timber, lit by a few lanterns. */
+function tunnelShell(k: BuildKit, tunnel: Circuit): void {
+  const { d, root } = k
+  const shell = new Mesher(), props = new Mesher(), lamps: THREE.Matrix4[] = []
+  for (let i = 0; i < tunnel.count; i += 2) {
+    if (!tunnel.tunnel[i]) continue
+    const p = tunnel.samples[i]!, r = tunnel.rights[i]!, t = tunnel.tangents[i]!
+    const R = tunnel.widths[i]! / 2 + 2.4, yaw = Math.atan2(-t.x, -t.z)
+    for (let q = 0; q <= 9; q++) {
+      const a = (q / 9) * Math.PI, ca = Math.cos(a), sa = Math.sin(a)
+      const x = p.x + r.x * ca * R, z = p.z + r.z * ca * R, y = p.y - 0.6 + sa * R * 0.8
+      shell.add(new THREE.BoxGeometry(3.6, 1.4, 4.4), trs(x, y, z, 0, 1).multiply(new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(0, yaw, a - Math.PI / 2, 'YXZ'))), [0x3a3e3a, 0x343834, 0x40443e][(i + q) % 3]!)
+    }
+    if (i % 10 === 0) {
+      for (const s of [-1, 1]) props.box(0.6, R * 0.8 + 1, 0.6, p.x + r.x * s * (R - 1.4), p.y + R * 0.4, p.z + r.z * s * (R - 1.4), 0x4a3422, yaw)
+      props.box(R * 2 - 2, 0.6, 0.7, p.x, p.y + R * 0.8 - 0.4, p.z, 0x4a3422, yaw)
+    }
+    if (i % 20 === 0) lamps.push(trs(p.x + r.x * (R - 2), p.y + 4, p.z + r.z * (R - 2), 0, 0.35))
+  }
+  place(k, shell, surface('rock'))
+  place(k, props, surface('wood'))
+  d.instanced(new THREE.SphereGeometry(1, 8, 6), glow(0.8, 4, 2.6), lamps, false)
+  const pool = softDot()
+  for (const m of lamps) {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: pool, color: 0x6affc8, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false }))
+    sp.position.setFromMatrixPosition(m)
+    sp.scale.setScalar(10)
+    root.add(sp)
+  }
 }

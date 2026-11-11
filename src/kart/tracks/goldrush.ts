@@ -3,10 +3,10 @@ import { canvasTexture, fbm2, lumpy, ridged2, smooth, softDot, trs } from '../..
 import { Mesher, crowd, place, surface } from '../art/arch'
 import { forest, grass } from '../art/foliage'
 import { mountainRing } from '../art/terrain'
-import type { Solid } from '../World'
+import type { Platform, Solid } from '../World'
 import type { BuildKit, TrackDef, TrackPoint } from '../types'
 import type { Circuit } from '../Circuit'
-import { arrows, crates, gantry, glow, mist } from './parts'
+import { arrows, crates, gantry, glow, mist, railTrack } from './parts'
 
 /*
  * Gold Rush Line, as a run round the valley. Down the boomtown's main street
@@ -31,7 +31,7 @@ const railDist = (x: number, z: number): number => {
   return Math.abs(Math.hypot(u, v) - 1) * RZ
 }
 
-const T = { tunnel: true, w: 13, deck: 'wood', rail: 'LR' } as const
+const T = { tunnel: true, w: 13, deck: 'wood', rail: 'LR', lock: true } as const
 
 const POINTS: TrackPoint[] = [
   // 0: main street, heading east with the railway alongside
@@ -61,6 +61,13 @@ const POINTS: TrackPoint[] = [
   [-390, 14, 112, { pad: 0, items: true }],
   [-240, 14, 104],
   [-120, 14, 40], // 21: the blast short cut rejoins
+  // 22: out round the south of town and back to main street
+  [-200, 14, 150],
+  [-110, 14, 250, { pad: 0 }],
+  [20, 14, 232, { items: true }],
+  [72, 14, 122],
+  [-40, 14, 40],
+  [-82, 14, -38],
 ]
 
 export const goldrush: TrackDef = {
@@ -91,6 +98,24 @@ export const goldrush: TrackDef = {
         [290, 38, -440, { ...T, pad: 0 }],
         [180, 39, -455, T],
         [80, 40, -450, T],
+      ],
+    },
+    {
+      // the railway: over the line and onto the track bed, east with the train.
+      // Catch it, drive up the ramp wagon, along the flat cars and off the
+      // kicker over the engine, with the train's speed on top of yours
+      name: 'Railway', from: 1, to: 5, odds: 0.45,
+      points: [
+        [180, 15, -105, { w: 16 }],
+        [207, 16, -152, { w: 16 }],
+        [236, 16, -183.4, { w: 18, deck: 'wood' }],
+        [300, 16, -181.8, { w: 18, deck: 'wood' }],
+        [370, 16, -179.5, { w: 18, deck: 'wood' }],
+        [440, 16, -176.1, { w: 18, deck: 'wood' }],
+        [505, 16, -172.1, { w: 18, deck: 'wood' }],
+        [565, 17, -182, { w: 18 }],
+        [588, 20, -224, { w: 16 }],
+        [545, 22, -262, { w: 16 }],
       ],
     },
     {
@@ -137,7 +162,7 @@ export const goldrush: TrackDef = {
     gantry(k, 'Gold Rush Line', '#e8a03a')
     arrows(k, 0xffb040)
     mountainRing(root, 0, -200, { inner: 1400, outer: 3200, height: 480, rock: 0x8a5038, seed: 12 })
-    const mine = c.branches[0]!, cut = c.branches[1]!
+    const mine = c.branches[0]!, cut = c.branches[2]!
     westernTown(k)
     trestle(k)
 
@@ -151,7 +176,7 @@ export const goldrush: TrackDef = {
         if (d.rand() < 0.45) continue
         const lat = s * (c.widths[i]! / 2 + 3.4 + d.rand() * 1.4)
         const x = p.x + r.x * lat + t.x * d.rand() * 3, z = p.z + r.z * lat + t.z * d.rand() * 3
-        if (railDist(x, z) < 8) continue
+        if (railDist(x, z) < 8 || d.roadGap(x, z) < 2 || c.all.some((q) => q.roadAt(x, z, w.terrainAt(x, z) + 3, { i: -1, lat: 0, y: 0 }))) continue
         folk.push([x, w.terrainAt(x, z), z, Math.atan2(r.x * s, r.z * s) * -1 + 1.57])
       }
     }
@@ -177,13 +202,15 @@ export const goldrush: TrackDef = {
     mist(k, d.spots(14, 30, 200, { clear: 26 }).map((s) => s.setY(s.y + 5)), [90, 160], 0xf0b888, 0.1)
 
     const carts = mineGalleries(k, mine)
+    railTrack(k, mine)
     const blast = blastCut(k, cut)
-    const train = railway(k)
+    const train = railway(k, c.branches[1]!)
+    railSign(k, c.branches[1]!)
     gorgeSign(k)
 
     k.onFrame((f) => {
       const last = f.totalLaps > 1 && f.lap >= f.totalLaps
-      train(last ? 46 : 32, f.dt, f.time)
+      train(last ? 40 : 32, f.dt, f.time, f.player)
       carts(f.lap >= 2, f.time)
       blast(f.lap >= 2, f.dt)
       cut.join!.odds = f.lap >= 2 ? 0.7 : 0
@@ -231,6 +258,8 @@ function westernTown(k: BuildKit): void {
       const half = c.widths[i]! / 2, lat = side * (half + 15)
       const x = p.x + r.x * lat, z = p.z + r.z * lat, y = w.terrainAt(x, z)
       if (d.roadGap(x, z) < 8 || railDist(x, z) < 24 || w.blocked(x, z, 9)) continue
+      // only at street level: on a canyon rim a building hangs in the air over the road
+      if (Math.abs(y - p.y) > 2.5) continue
       const W = 15 + d.rand() * 5, D = 12, H = 6 + d.rand() * 4, F = H + 2.5 + d.rand() * 2.5
       const yaw = Math.atan2(-r.x * side, -r.z * side)
       const cs = Math.cos(yaw), sn = Math.sin(yaw)
@@ -285,8 +314,13 @@ function westernTown(k: BuildKit): void {
 function mineGalleries(k: BuildKit, mine: Circuit): (on: boolean, t: number) => void {
   const { world: w, d, root } = k
   const frames = new Mesher(), lamps: THREE.Matrix4[] = [], flecks: THREE.Matrix4[] = []
+  const probe = { i: -1, lat: 0, y: 0 }
+  // nothing of the mine may stand over the main road where the two still overlap
+  const overMain = (x: number, z: number, y: number) => k.circuit.roadAt(x, z, y + 12, probe) && probe.y < y + 12 && Math.abs(probe.lat) < k.circuit.widths[probe.i]! / 2 + 3
+  let first = -1, last = -1
+  for (let i = 0; i < mine.count; i++) if (mine.tunnel[i] && !overMain(mine.samples[i]!.x, mine.samples[i]!.z, mine.samples[i]!.y)) { if (first < 0) first = i; last = i }
   for (let i = 0; i < mine.count; i += 3) {
-    if (!mine.tunnel[i]) continue
+    if (!mine.tunnel[i] || i < first || i > last) continue
     const p = mine.samples[i]!, r = mine.rights[i]!, t = mine.tangents[i]!
     const half = mine.widths[i]! / 2 + 0.5, yaw = Math.atan2(t.x, t.z), H = 9
     for (const s of [-1, 1]) {
@@ -302,7 +336,7 @@ function mineGalleries(k: BuildKit, mine: Circuit): (on: boolean, t: number) => 
     frames.box(half * 2 + 2.4, 0.4, 6.4, p.x, p.y + H + 0.7, p.z, 0x38281a, yaw)
   }
   // the portals: timber frames set into the rock face at each end
-  for (const i of [2, mine.count - 3]) {
+  for (const i of [first + 2, last - 2]) {
     const p = mine.samples[i]!, t = mine.tangents[i]!, half = mine.widths[i]! / 2 + 1.5, yaw = Math.atan2(t.x, t.z)
     frames.box(half * 2 + 6, 3, 1.4, p.x, p.y + 11, p.z, 0x4a3422, yaw)
     const r = mine.rights[i]!
@@ -401,8 +435,15 @@ function blastCut(k: BuildKit, cut: Circuit): (open: boolean, dt: number) => voi
 }
 
 /** The railway: sleepers and rails round the valley, crossing signals, and the train. */
-function railway(k: BuildKit): (speed: number, dt: number, time: number) => void {
+function railway(k: BuildKit, bed: Circuit): (base: number, dt: number, time: number, player: THREE.Vector3) => void {
   const { circuit: c, world: w, d, root } = k
+  const probe = { i: -1, lat: 0, y: 0 }
+  // the rail top: on the ground, or on the road where the line runs along it
+  const railY = (x: number, z: number): number => {
+    let y = w.terrainAt(x, z)
+    for (const p of c.all) if (p.roadAt(x, z, y + 4, probe)) y = Math.max(y, probe.y)
+    return y
+  }
   const sleepers: THREE.Matrix4[] = [], railSeg: THREE.Matrix4[] = []
   const a0 = new THREE.Vector3(), a1 = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0)
   const STEPS = 900
@@ -410,7 +451,7 @@ function railway(k: BuildKit): (speed: number, dt: number, time: number) => void
   for (let q = 0; q < STEPS; q++) {
     railPoint((q / STEPS) * Math.PI * 2, a0)
     railPoint(((q + 1) / STEPS) * Math.PI * 2, a1)
-    const y0 = w.terrainAt(a0.x, a0.z) + 0.16, y1 = w.terrainAt(a1.x, a1.z) + 0.16
+    const y0 = railY(a0.x, a0.z) + 0.16, y1 = railY(a1.x, a1.z) + 0.16
     a0.y = y0; a1.y = y1
     const yaw = Math.atan2(a1.x - a0.x, a1.z - a0.z)
     if (!onRoad(a0.x, a0.z, y0)) sleepers.push(trs(a0.x, y0 - 0.06, a0.z, yaw, new THREE.Vector3(3, 0.16, 0.34)))
@@ -437,6 +478,7 @@ function railway(k: BuildKit): (speed: number, dt: number, time: number) => void
     for (const s of [-1, 1]) {
       const lat = s * (c.widths[i]! / 2 + 2)
       const x = p.x + r.x * lat, z = p.z + r.z * lat, y = w.terrainAt(x, z)
+      if (c.all.some((q) => q.roadAt(x, z, y + 4, probe))) continue
       signal.post(0.12, 0.1, 5, x, y, z, 0x2a2a2c, 6)
       signal.box(2.6, 0.3, 0.1, x, y + 4.4, z, 0xe8e0d0, 0, 0.7)
       signal.box(2.6, 0.3, 0.1, x, y + 4.4, z, 0xe8e0d0, 0, -0.7)
@@ -448,7 +490,8 @@ function railway(k: BuildKit): (speed: number, dt: number, time: number) => void
   const bulbMat = glow(0.3, 0.02, 0.02)
   if (bulbs.length) d.instanced(new THREE.SphereGeometry(1, 8, 6), bulbMat, bulbs, false)
 
-  // the train: each car a moving solid
+  // the train: the engine, then a car-carrier rake you can drive on. From
+  // the front: a kicker wagon, flat wagons, and a ramp wagon at the back.
   const parts = engine()
   const loco = new THREE.Group()
   const add = (g: THREE.BufferGeometry, mat: THREE.Material, into: THREE.Group): void => {
@@ -459,20 +502,26 @@ function railway(k: BuildKit): (speed: number, dt: number, time: number) => void
   add(parts.loco.build(), surface('wood'), loco)
   add(parts.black.build(), surface('metal', { rough: 0.42 }), loco)
   add(parts.brass.build(), surface('metal', { rough: 0.25, metal: 0.9 }), loco)
-  const cars: { o: THREE.Object3D; solid: Solid; off: number }[] = []
-  const addCar = (o: THREE.Object3D, off: number, half: number): void => {
+  type Wagon = { o: THREE.Object3D; solid: Solid | null; deck: Platform | null; off: number; y0: number; y1: number; top: number }
+  const cars: Wagon[] = []
+  const addCar = (o: THREE.Object3D, off: number, half: number, y0: number, y1: number, top: number, hx: number): void => {
     o.traverse((q) => { q.frustumCulled = false })
     root.add(o)
-    const solid: Solid = { x: 0, z: 0, r: half + 2, hx: 1.7, hz: half, cos: 1, sin: 0, top: 1e6 }
-    w.movers.push(solid)
-    cars.push({ o, solid, off })
+    let solid: Solid | null = null
+    // (top below zero: no solid while the wagon can be driven on, a wall otherwise)
+    if (top !== 0) { solid = { x: 0, z: 0, r: half + 3, hx, hz: half, cos: 1, sin: 0, top }; w.movers.push(solid) }
+    let deck: Platform | null = null
+    if (y1 > 0) { deck = { x: 0, z: 0, hx: y0 < 1 ? 4.6 : 3.2, hz: half + 0.25, cos: 1, sin: 0, y0, y1, vx: 0, vz: 0, live: true }; w.platforms.push(deck) }
+    cars.push({ o, solid, deck, off, y0, y1, top })
   }
-  addCar(loco, 0, 7)
-  for (let q = 0; q < 6; q++) {
-    const g = new THREE.Group()
-    add(wagon(q % 3).build(), surface(q % 3 === 0 ? 'wood' : 'paint'), g)
-    addCar(g, 13.5 + q * 11.6, 5.4)
-  }
+  // the engine is solid up to its boiler top, so a car flying over clears it
+  addCar(loco, 0, 7, 0, 0, 5.6, 1.7)
+  const L = 12, DECK = 2.4, KICK = 5.4
+  addCar(carrier(0), 13.6, 5.8, DECK, KICK, 1.2, 3.2)
+  cars[cars.length - 1]!.deck!.kick = true
+  for (let q = 1; q <= 4; q++) addCar(carrier(1), 13.6 + q * L, 5.8, DECK, DECK, 1.2, 3.2)
+  addCar(carrier(2), 13.6 + 5 * L, 5.8, 0.35, DECK, -1, 3.2)
+  const TAIL = 13.6 + 5 * L + 6
   const puffs: { s: THREE.Sprite; t: number; x: number; y: number; z: number }[] = []
   const dot = softDot()
   for (let q = 0; q < 24; q++) {
@@ -480,21 +529,66 @@ function railway(k: BuildKit): (speed: number, dt: number, time: number) => void
     root.add(s)
     puffs.push({ s, t: 9, x: 0, y: 0, z: 0 })
   }
-  let a = 0.6, puffT = 0, puffN = 0
-  const pos = new THREE.Vector3(), ahead = new THREE.Vector3()
   const circum = Math.PI * Math.sqrt(2 * (RX * RX + RZ * RZ))
-  return (speed, dt, time) => {
-    a = (a + (speed / circum) * Math.PI * 2 * dt) % (Math.PI * 2)
+  const TAU = Math.PI * 2
+  const angleOf = (x: number, z: number): number => Math.atan2((z - CZ) / RZ, x / RX)
+  // where the drivable stretch of line starts
+  const bedStart = bed.samples[Math.floor(bed.count * 0.3)]!
+  const aStart = angleOf(bedStart.x, bedStart.z)
+  const N = c.count, metre = c.length / N
+  let a = aStart - 0.9, speed = 32, puffT = 0, puffN = 0
+  const pos = new THREE.Vector3(), ahead = new THREE.Vector3()
+  return (base, dt, time, player) => {
+    // pacing: while you are on your way to the line, the train makes sure
+    // its tail is just ahead of you when you get there
+    let want = base
+    const pi = c.track(player.x, player.z, 0, N)
+    const toFork = ((bed.join!.from - pi + N) % N) * metre
+    const pa = angleOf(player.x, player.z)
+    const tail = a - (TAIL / circum) * TAU
+    // already on the track bed behind the train: it eases off so you can catch it
+    let behind = ((tail - pa) % TAU + TAU) % TAU
+    if (behind > Math.PI) behind -= TAU
+    const onBranch = bed.roadAt(player.x, player.z, player.y + 2, probe)
+    if (onBranch) {
+      // on the way to the train or on the track bed: hold back while you're behind it
+      if (behind > 0 && behind * circum / TAU < 300) want = Math.min(base, 22)
+    }
+    else if (toFork > 20 && toFork < c.length - 60) {
+      // all the way round the lap: aim to be there when you are
+      const t = (toFork + 150) / (toFork > 650 ? 50 : 44)
+      // metres the tail still has to go to reach the start of the track bed
+      const gap = (((aStart - tail) % TAU + TAU) % TAU / TAU) * circum
+      // just past it already: dawdle so you catch it, if you can; else go round again
+      const past = circum - gap
+      want = past + 12 * t < 200 ? 12 : THREE.MathUtils.clamp((gap + 20) / t, 12, 55)
+    }
+    speed += (want - speed) * Math.min(1, dt * 0.6)
+    root.userData['train'] = { speed, want, toFork, tailX: cars[cars.length - 1]!.o.position.x, tailZ: cars[cars.length - 1]!.o.position.z, headX: cars[0]!.o.position.x }
+    a = (a + (speed / circum) * TAU * dt) % TAU
     for (const car of cars) {
-      const u = a - (car.off / circum) * Math.PI * 2
+      const u = a - (car.off / circum) * TAU
       railPoint(u, pos)
       railPoint(u + 0.004, ahead)
-      const y = w.terrainAt(pos.x, pos.z) + 0.2
+      const y = railY(pos.x, pos.z) + 0.2
       const yaw = Math.atan2(ahead.x - pos.x, ahead.z - pos.z)
       car.o.position.set(pos.x, y, pos.z)
       car.o.rotation.y = yaw
-      car.solid.x = pos.x; car.solid.z = pos.z
-      car.solid.cos = Math.cos(yaw); car.solid.sin = Math.sin(yaw)
+      // the wagons can only be driven on along the track bed; anywhere else the train is a wall
+      const rideable = bed.roadAt(pos.x, pos.z, y + 2, probe) && probe.i > 4 && probe.i < bed.count * 0.82
+      if (car.deck) car.deck.live = rideable
+      if (car.solid) {
+        car.solid.x = pos.x; car.solid.z = pos.z
+        car.solid.cos = Math.cos(yaw); car.solid.sin = Math.sin(yaw)
+        car.solid.top = rideable ? y + car.top : 1e6
+      }
+      if (car.deck) {
+        const dk = car.deck
+        dk.x = pos.x; dk.z = pos.z
+        dk.cos = Math.cos(yaw); dk.sin = Math.sin(yaw)
+        dk.y0 = y + car.y0; dk.y1 = y + car.y1
+        dk.vx = Math.sin(yaw) * speed; dk.vz = Math.cos(yaw) * speed
+      }
     }
     let warn = false
     railPoint(a, pos)
@@ -519,6 +613,45 @@ function railway(k: BuildKit): (speed: number, dt: number, time: number) => void
       m.opacity = 0.5 * (1 - p.t / 3)
     }
   }
+}
+
+/**
+ * A car-carrier wagon, 6.4 m wide so a kart fits on it: kind 0 is the front
+ * kicker (the deck rises to launch you over the engine), 1 a flat car, 2 the
+ * ramp at the back you drive up from the track bed.
+ */
+function carrier(kind: number): THREE.Group {
+  const g = new THREE.Group()
+  const m = new Mesher(), stripes = new Mesher()
+  const H = 5.8
+  for (const z of [-4, 4]) for (const s of [-1, 1]) m.add(new THREE.CylinderGeometry(0.62, 0.62, 0.3, 14), trs(s * 1.25, 0.65, z, 0, 1, 0, Math.PI / 2), 0x1a1a1c)
+  m.box(2.8, 0.6, H * 2, 0, 1.3, 0, 0x26272a)
+  const y0 = kind === 2 ? 0.35 : 2.4, y1 = kind === 0 ? 5.4 : 2.4
+  // the deck, tilted to run from y0 at the back to y1 at the front
+  const len = Math.hypot(H * 2, y1 - y0), pitch = Math.atan2(y1 - y0, H * 2)
+  const tilt = new THREE.Quaternion().setFromEuler(new THREE.Euler(-pitch, 0, 0))
+  m.add(new THREE.BoxGeometry(kind === 2 ? 9.2 : 6.4, 0.4, len), new THREE.Matrix4().compose(new THREE.Vector3(0, (y0 + y1) / 2 - 0.2, 0), tilt, new THREE.Vector3(1, 1, 1)), 0x6a4a2e)
+  // supports under a sloping deck
+  if (kind !== 1) for (const z of [-3, 0, 3]) {
+    const top = y0 + (y1 - y0) * ((z + H) / (H * 2))
+    if (top > 1.8) for (const s of [-1, 1]) m.box(0.3, top - 1.6, 0.3, s * 2.6, 1.6 + (top - 1.6) / 2, z, 0x3a3a3c)
+  }
+  // yellow edges, so you can read it at speed
+  for (const s of [-1, 1]) stripes.add(new THREE.BoxGeometry(0.3, 0.3, len), new THREE.Matrix4().compose(new THREE.Vector3(s * (kind === 2 ? 4.5 : 3.1), (y0 + y1) / 2 + 0.05, 0), tilt, new THREE.Vector3(1, 1, 1)), 0xe8b020)
+  if (kind === 0) stripes.box(6.4, 0.5, 0.4, 0, y1 + 0.05, H - 0.2, 0xe8b020)
+  // painted chevrons pointing forward, so the way on reads at a glance
+  for (const z of [-2.6, 2.6]) {
+    const y = y0 + (y1 - y0) * ((z + H) / (H * 2)) + 0.03
+    for (const s of [-1, 1]) {
+      const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(-pitch, s * 0.7, 0, 'YXZ'))
+      stripes.add(new THREE.BoxGeometry(0.5, 0.06, 2.6), new THREE.Matrix4().compose(new THREE.Vector3(s * 0.85, y, z - 0.6), q, new THREE.Vector3(1, 1, 1)), 0xffc030)
+    }
+  }
+  const a = new THREE.Mesh(m.build(), surface('wood', { rough: 0.8 }))
+  const b = new THREE.Mesh(stripes.build(), surface('paint', { rough: 0.4 }))
+  a.castShadow = true
+  g.add(a, b)
+  return g
 }
 
 /** A striped beam at the broken end of the trestle. */
@@ -554,6 +687,23 @@ function engine(): { loco: Mesher; black: Mesher; brass: Mesher } {
   loco.box(3.4, 3.4, 3.4, 0, 3.8, -3.1, 0x6a2a22)
   black.box(3.8, 0.3, 4, 0, 5.6, -3.1, 0x1e1f22)
   black.add(new THREE.ConeGeometry(1.8, 2.4, 4), trs(0, 1.1, 8.5, Math.PI / 4, 1, Math.PI / 2 * 0.9), 0x7a2a22)
+  // brass bands round the boiler, a bell, a headlamp box on the smokebox
+  for (const z of [-0.6, 1.6, 3.8, 6]) brass.add(new THREE.CylinderGeometry(1.54, 1.54, 0.16, 18), trs(0, 3.2, z, 0, 1, Math.PI / 2), 0xb08a3a)
+  brass.add(new THREE.CylinderGeometry(0.22, 0.4, 0.5, 10), trs(0, 4.95, 4.1), 0xc8a048)
+  black.box(0.9, 0.8, 0.8, 0, 5, 7.1, 0x1e1f22)
+  brass.box(0.6, 0.5, 0.06, 0, 5, 7.52, 0xfff0c0)
+  // running boards and a handrail along each side, coupling rods on the drivers
+  for (const s of [-1, 1]) {
+    black.box(0.5, 0.12, 9.4, s * 1.75, 2.05, 2.6, 0x26272a)
+    brass.box(0.06, 0.06, 7.4, s * 1.62, 3.9, 2.6, 0xb08a3a)
+    black.box(0.12, 0.22, 6.8, s * 1.62, 1.0, 2.5, 0xb0b0b4)
+    for (const z of [-0.8, 1.4, 3.6, 5.8]) brass.add(new THREE.CylinderGeometry(0.22, 0.22, 0.34, 10), trs(s * 1.48, 1, z, 0, 1, 0, Math.PI / 2), 0xb08a3a)
+  }
+  // the cab: windows, a curved roof overhang, a whistle
+  for (const s of [-1, 1]) black.box(0.06, 1.1, 1.4, s * 1.72, 4.6, -3.1, 0x0c0d10)
+  black.box(2.4, 1, 0.06, 0, 4.6, -1.38, 0x0c0d10)
+  black.add(new THREE.CylinderGeometry(2.1, 2.1, 4.2, 16, 1, false, -0.7, 1.4), trs(0, 3.95, -3.1, 0, 1, -Math.PI / 2), 0x1e1f22)
+  brass.add(new THREE.CylinderGeometry(0.1, 0.1, 0.7, 8), trs(0, 6.2, -1.6), 0xc8a048)
   return { loco, black, brass }
 }
 
@@ -570,4 +720,26 @@ function wagon(kind: number): Mesher {
     m.add(new THREE.CylinderGeometry(1.9, 1.9, 10.2, 12, 1, false, 0, Math.PI), trs(0, 4.7, 0, 0, new THREE.Vector3(0.86, 0.3, 1), Math.PI / 2), 0x3a3a3c)
   }
   return m
+}
+
+/** A board where the railway branch leaves: catch the train. */
+function railSign(k: BuildKit, bed: Circuit): void {
+  const { world: w, root } = k
+  const i = Math.floor(bed.count * 0.06), p = bed.samples[i]!, r = bed.rights[i]!, t = bed.tangents[i]!
+  const side = bed.widths[i]! / 2 + 3, x = p.x + r.x * side, z = p.z + r.z * side, y = w.terrainAt(x, z)
+  const tex = canvasTexture(512, 256, (g, W, H) => {
+    g.fillStyle = '#2a1a10'; g.fillRect(0, 0, W, H)
+    g.fillStyle = '#e8b020'; g.fillRect(8, 8, W - 16, H - 16)
+    g.fillStyle = '#2a1a10'; g.textAlign = 'center'
+    g.font = '900 64px "Barlow Condensed", Arial, sans-serif'; g.fillText('CATCH THE', W / 2, 100)
+    g.font = '900 92px "Barlow Condensed", Arial, sans-serif'; g.fillText('TRAIN', W / 2, 196)
+  })
+  const board = new THREE.Mesh(new THREE.PlaneGeometry(8, 4), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.7, side: THREE.DoubleSide }))
+  board.position.set(x, y + 5.5, z)
+  board.rotation.y = Math.atan2(t.x, t.z) + Math.PI
+  root.add(board)
+  const m = new Mesher()
+  for (const s of [-1, 1]) m.post(0.18, 0.18, 7.5, x + t.z * s * 3, y, z - t.x * s * 3, 0x3a2a1a, 6)
+  place(k, m, surface('wood'))
+  w.addPost(x, z, 1)
 }

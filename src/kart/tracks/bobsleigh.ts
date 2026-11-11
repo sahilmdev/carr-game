@@ -7,7 +7,8 @@ import { mountainRing } from '../art/terrain'
 import type { Solid } from '../World'
 import type { BuildKit, TrackDef, TrackPoint } from '../types'
 import type { Circuit } from '../Circuit'
-import { arrows, drift, gantry, glow, mist } from './parts'
+import type { Zone } from '../World'
+import { arrows, drift, findGap, gantry, glow, mist, movingDeck } from './parts'
 
 /*
  * Bobsleigh Peak, top to bottom and back. Start in the summit village and go
@@ -42,11 +43,11 @@ const POINTS: TrackPoint[] = [
   [440, 155, -150],
   [500, 148, -60],
   [480, 140, 40, { bank: 6 }],
-  [400, 132, 100, { rail: '' }], // 13: the forest trail leaves here (the chute opens)
+  [400, 132, 100], // 13: the forest trail leaves here (the rail opens where it splits)
   [310, 124, 150, { pad: 0 }],
   [260, 116, 240, { bank: 6 }],
   [320, 108, 330],
-  [430, 100, 360, { rail: '' }], // 17: the forest trail rejoins
+  [430, 100, 360], // 17: the forest trail rejoins
   [530, 92, 330, { bank: 6 }],
   [600, 84, 400],
   [580, 74, 500, { items: true }],
@@ -78,10 +79,13 @@ const BRANCHES = [
     ] as TrackPoint[],
   },
   {
-    // straight across the frozen lake: glassy ice, and on the last lap, cracks
+    // straight across the frozen lake: glassy ice, then open water you cross
+    // on drifting floes (they drift further on the last lap)
     name: 'Ice road', from: 23, to: 25, odds: 0.5,
     points: [
       [150, LAKE.y + 1.4, 655, { deck: 'ice', rail: '', w: 24, raised: true }],
+      [128, LAKE.y + 1.4, 654, { gap: true }],
+      [84, LAKE.y + 1.4, 651, { gap: true }],
       [60, LAKE.y + 1.4, 650, { deck: 'ice', rail: '', w: 24, raised: true }],
     ] as TrackPoint[],
   },
@@ -134,7 +138,8 @@ export const bobsleigh: TrackDef = {
   terrain: { layers: ['snow_02', 'snow_02', 'rock_pitted_mossy', 'snow_02'], tile: [16, 40, 24, 9], tints: [0xf4f8ff, 0xe8f0fa, 0x8e9aa8, 0xfaf8f4], roughness: 0.72 },
   look: {
     tod: 'morning', fog: [0.78, 0.86, 0.96], fogDensity: 0.0007, fogBase: 60, fogFall: 0.005, sunGlow: 0.9,
-    exposure: 0.98, sun: 1.25, hemi: 1, bloom: 0.26, shafts: 0.5, grade: [1.1, 1.1, 0, 0.002, 0.012, 1, 1, 1.04, 0.3],
+    // snow reads clean white, not grey: more exposure and sky light, a neutral grade
+    exposure: 1.1, sun: 1.2, hemi: 1.3, bloom: 0.2, shafts: 0.2, grade: [1.02, 1.06, 0.01, 0.012, 0.016, 1.06, 1.06, 1.07, 0.22],
   },
   points: POINTS,
   branches: BRANCHES,
@@ -225,6 +230,9 @@ export const bobsleigh: TrackDef = {
     }
 
     const base = bobsleigh.look.fogDensity
+    const floes = iceFloes(k, k.circuit.branches[1]!)
+    chuteWalls(k, 10, 20)
+    k.onFrame((f) => floes(f.totalLaps > 1 && f.lap >= f.totalLaps, f.dt))
     k.onFrame((f) => {
       cabins(f.time)
       const on = f.lap >= 2
@@ -287,7 +295,7 @@ function channel(k: BuildKit): void {
   g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3))
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2))
   g.setIndex(idx)
-  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.16, metalness: 0.02, side: THREE.DoubleSide, envMapIntensity: 1.6 })
+  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3, metalness: 0.02, side: THREE.DoubleSide, envMapIntensity: 1.2 })
   mat.onBeforeCompile = (s) => {
     s.vertexShader = s.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec2 vC;')
@@ -301,7 +309,7 @@ function channel(k: BuildKit): void {
         ice = mix(ice, vec3(0.97, 0.98, 1.0), lip);
         ice = mix(ice, vec3(1.0), smoothstep(0.7, 0.86, aNoise(vec2(vC.x * 22.0, vC.y * 0.5))) * 0.4);
         diffuseColor.rgb = ice;`)
-      .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = mix(0.14, 0.9, smoothstep(0.72, 0.9, vC.x));')
+      .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = mix(0.32, 0.9, smoothstep(0.72, 0.9, vC.x));')
   }
   mat.customProgramCacheKey = () => 'kart-chute'
   const m = new THREE.Mesh(g, mat)
@@ -513,4 +521,68 @@ function crackTexture(): THREE.CanvasTexture {
       g.stroke()
     }
   })
+}
+
+/** Floes across the open lead in the ice: slabs you drive from one to the next as they bob and drift. */
+function iceFloes(k: BuildKit, road: Circuit): (last: boolean, dt: number) => void {
+  const g = findGap(road, 106, 652)
+  const lip = road.samples[g.i0 - 1]!, land = road.samples[g.i1 + 1]!
+  const yaw = Math.atan2(land.x - lip.x, land.z - lip.z), fx = Math.sin(yaw), fz = Math.cos(yaw)
+  const span = Math.hypot(land.x - lip.x, land.z - lip.z) + 2
+  const n = Math.ceil(span / 11), len = span / n - 1.1, w = road.widths[g.i0 - 1]! - 2
+  const floes = Array.from({ length: n }, (_, q) => ({ d: movingDeck(k, w, len, 0xdfeaf2, 0xa8c8d8, 1.6), u: (q + 0.5) / n - 0.5, ph: q * 1.9, prev: 0 }))
+  // the black water in the lead
+  const water = new THREE.Mesh(new THREE.PlaneGeometry(w + 30, span), new THREE.MeshStandardMaterial({ color: 0x0a1a24, roughness: 0.05, metalness: 0.3 }))
+  water.rotation.set(-Math.PI / 2, 0, -yaw, 'YXZ')
+  water.rotation.order = 'YXZ'
+  water.rotation.set(-Math.PI / 2, yaw, 0)
+  water.position.set((lip.x + land.x) / 2, lip.y - 0.85, (lip.z + land.z) / 2)
+  k.root.add(water)
+  let t = 0
+  return (last, dt) => {
+    t += dt
+    const drift = last ? 3.5 : 1.8
+    for (const f of floes) {
+      const side = Math.sin(t * 0.5 + f.ph) * drift
+      const v = dt > 0 ? (side - f.prev) / dt : 0
+      f.prev = side
+      const cx = lip.x + (land.x - lip.x) * (0.5 + f.u) + fz * side, cz = lip.z + (land.z - lip.z) * (0.5 + f.u) - fx * side
+      const y = lip.y + Math.sin(t * 1.3 + f.ph) * 0.22 - 0.1
+      f.d.set(cx, cz, yaw, y, y, fz * v, -fx * v)
+    }
+  }
+}
+
+/**
+ * The chute: curved ice walls either side, higher on the outside of each
+ * bend. Ride up the outside wall through a bend and it slings you on; take
+ * the inside and you get no help.
+ */
+function chuteWalls(k: BuildKit, from: number, to: number): void {
+  const c = k.circuit, P = bobsleigh.points
+  const at = (n: number) => c.track(P[n]![0], P[n]![2], 0, c.count, P[n]![1])
+  const i0 = at(from), i1 = at(to)
+  const ice = new Mesher()
+  const zones: Zone[] = []
+  for (let i = i0; i < i1; i += 3) {
+    const j = Math.min(c.count - 1, i + 10)
+    const p = c.samples[i]!, r = c.rights[i]!, t0 = c.tangents[i]!, t1 = c.tangents[j]!
+    const half = c.widths[i]! / 2, yaw = Math.atan2(-t0.x, -t0.z)
+    const bend = Math.hypot(t1.x - t0.x, t1.z - t0.z)
+    const insideSide = Math.sign((t1.x - t0.x) * r.x + (t1.z - t0.z) * r.z) || 1
+    for (const sd of [-1, 1]) {
+      const outside = sd === -insideSide && bend > 0.05
+      const h = outside ? 3.4 : 1.6
+      // a curved lip: two tilted slabs rising from the road edge
+      ice.box(0.6, h, 3.4, p.x + r.x * sd * (half + 0.8), p.y + h / 2 - 0.2, p.z + r.z * sd * (half + 0.8), 0xdcecf6, yaw, 0, sd * -0.5)
+      ice.box(0.5, 0.6, 3.4, p.x + r.x * sd * (half + 0.6 + h * 0.45), p.y + h, p.z + r.z * sd * (half + 0.6 + h * 0.45), 0xa8d0e8, yaw)
+    }
+    if (bend > 0.05 && i % 6 === 0) {
+      const sd = -insideSide, lat = sd * half * 0.55
+      const z: Zone = { x: p.x + r.x * lat, z: p.z + r.z * lat, r: 0, hx: half * 0.4, hz: 4, cos: Math.cos(yaw), sin: Math.sin(yaw), y0: p.y - 2, y1: p.y + 4, vx: -Math.sin(yaw) * 7, vz: -Math.cos(yaw) * 7, on: true }
+      k.world.zones.push(z)
+      zones.push(z)
+    }
+  }
+  place(k, ice, surface('paint', { rough: 0.12, metal: 0.1 }))
 }

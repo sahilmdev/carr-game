@@ -679,6 +679,9 @@ html, body {
 .nitro.active .nitro-track { border-color: #8fd3ff; box-shadow: 0 0 10px #4aa8ff; }
 .key-wide { width: auto; padding: 0 8px; font-size: 12px; }
 .touch-nitro { font-size: 15px; }
+.touch-item { font-size: 15px; background: rgba(255, 196, 60, 0.32); border-color: rgba(255, 210, 90, 0.8); }
+.touch-item.ready { animation: itemPulse 0.9s ease-in-out infinite; }
+@keyframes itemPulse { 50% { box-shadow: 0 0 18px rgba(255, 210, 90, 0.9); } }
 
 /* ── Photo mode ───────────────────────────────────────────────────────── */
 #photo-mode { position: fixed; inset: 0; z-index: 40; pointer-events: none; }
@@ -1090,3 +1093,12 @@ html, body {
 .cup-end-title { text-transform: uppercase; }
 .cup-end-title.gold { color: #ffcf4a; } .cup-end-title.silver { color: #d9dee6; } .cup-end-title.bronze { color: #e08a52; }
 .cup-end-sub { margin-top: 4px; font-size: 15px; color: rgba(255, 255, 255, 0.85); }
+
+#replay-bar { position: fixed; top: 18px; left: 50%; transform: translateX(-50%); z-index: 30; display: flex; align-items: center; gap: 14px; padding: 8px 16px; border-radius: 10px; background: rgba(6, 8, 18, 0.62); color: #fff; font: 700 16px Rajdhani, sans-serif; letter-spacing: 0.12em; }
+#replay-bar .replay-tag { color: #ff4a4a; animation: replayBlink 1.2s steps(2, start) infinite; }
+@keyframes replayBlink { 50% { opacity: 0.35; } }
+
+/* second choice on the results screen: quieter than the main button */
+.go-btn.alt { background: transparent; border: 2px solid rgba(255,255,255,0.55); font-size: 20px; }
+.go-btn.alt:hover:not(:disabled) { background: rgba(255,255,255,0.12); }
+.result-box .notice-actions { flex-wrap: wrap; }

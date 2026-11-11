@@ -1,70 +1,82 @@
 import * as THREE from 'three'
-import { trs } from '../../game/biomes/kit'
+import { lumpy, softDot, trs } from '../../game/biomes/kit'
 import { GLSL_NOISE, windClock } from '../art/atmos'
 import { Mesher, place, surface } from '../art/arch'
 import type { Solid } from '../World'
+import type { Circuit } from '../Circuit'
 import type { BuildKit, PointOpts, TrackDef } from '../types'
-import { arrows, drift, gantry, glow } from './parts'
+import { arrows, gantry, glow, loopTracks } from './parts'
 
-const STAR_Y = -70
 const R: PointOpts = { raised: true, deck: 'steel', rail: 'LR' }
+/** Where the sun hangs in the sky, as a direction from the station. */
+const SUN = new THREE.Vector3(-0.62, 0.22, -0.75).normalize()
+/** The gas giant the station orbits, far below. */
+const PLANET = { x: 900, y: -5200, z: 1400, r: 4800 }
+/** The crown: the great ring of the station with its spires, which the road runs through. */
+const CROWN = { x: -40, y: 40, z: -150, r: 150 }
 
-/** The star's surface: boiling granulation, bright lanes, dark spots, hot to the eye. */
-function photosphere(): THREE.ShaderMaterial {
+/** The gas giant: soft bands of cloud drifting round it, a thin bright limb. */
+function giantMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
-    uniforms: { uT: windClock, uHeat: { value: 1 } },
-    vertexShader: 'varying vec3 vW; void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }',
+    uniforms: { uT: windClock, uSun: { value: SUN.clone() } },
+    vertexShader: 'varying vec3 vN; varying vec3 vW; void main(){ vN = normalize(mat3(modelMatrix) * normal); vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }',
     fragmentShader: `${GLSL_NOISE}
-      varying vec3 vW; uniform float uT, uHeat;
+      varying vec3 vN; varying vec3 vW; uniform float uT; uniform vec3 uSun;
       void main(){
-        vec2 p = vW.xz * 0.012;
-        float t = uT * 0.15;
-        // granules: cells of rising plasma with cooler lanes between
-        float g = aFbm(p * 3.0 + vec2(t, -t * 0.7));
-        float cells = smoothstep(0.25, 0.75, aNoise(p * 9.0 + g * 2.2 + t * 0.6));
-        float big = aFbm(p * 0.35 - t * 0.05);
-        float spot = smoothstep(0.78, 0.86, aFbm(p * 0.5 + 7.3)) ;
-        float h = clamp(0.35 + cells * 0.45 + big * 0.35 - spot * 0.9, 0.0, 1.2) * uHeat;
-        vec3 col = mix(vec3(0.35, 0.04, 0.0), vec3(1.5, 0.52, 0.08), smoothstep(0.2, 0.75, h));
-        col = mix(col, vec3(2.2, 1.5, 0.7), smoothstep(0.85, 1.15, h));
-        float d = length(vW.xz - cameraPosition.xz);
-        col = mix(col, vec3(1.3, 0.42, 0.08), smoothstep(900.0, 3600.0, d));
+        float lat = vN.y;
+        float swirl = aFbm(vec2(vN.x * 3.0 + vN.z * 1.7 + uT * 0.004, lat * 6.0 + vN.z * 2.0)) * 0.35;
+        float b = sin((lat + swirl * 0.25) * 38.0) * 0.5 + 0.5;
+        float b2 = sin((lat - swirl * 0.4) * 11.0) * 0.5 + 0.5;
+        vec3 deep = vec3(0.05, 0.12, 0.24), mid = vec3(0.16, 0.34, 0.48), pale = vec3(0.62, 0.56, 0.46);
+        vec3 col = mix(deep, mid, b2);
+        col = mix(col, pale, smoothstep(0.55, 0.95, b) * 0.55);
+        float lit = clamp(dot(vN, uSun) * 0.8 + 0.35, 0.08, 1.0);
+        vec3 view = normalize(cameraPosition - vW);
+        float limb = pow(1.0 - clamp(dot(vN, view), 0.0, 1.0), 3.0);
+        col = col * lit * 0.8 + vec3(0.3, 0.55, 0.9) * limb * 0.5;
         gl_FragColor = vec4(col, 1.0);
       }`,
-    toneMapped: false,
     fog: false,
   })
 }
 
-/** Plasma along a prominence: streaming, flickering, additive. */
-function plasma(): THREE.ShaderMaterial {
+/** Deep space: near-black blue with faint violet and teal nebula drifting through it. */
+function spaceMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
-    uniforms: { uT: windClock, uGain: { value: 1 } },
-    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    uniforms: { uSun: { value: SUN.clone() } },
+    vertexShader: 'varying vec3 vD; void main(){ vD = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
     fragmentShader: `${GLSL_NOISE}
-      varying vec2 vUv; uniform float uT, uGain;
+      varying vec3 vD; uniform vec3 uSun;
       void main(){
-        float flow = aFbm(vec2(vUv.x * 18.0 - uT * 1.6, vUv.y * 3.0));
-        float edge = sin(vUv.y * 3.14159);
-        float a = smoothstep(0.25, 0.8, flow) * edge;
-        vec3 c = mix(vec3(1.2, 0.22, 0.03), vec3(2.0, 1.1, 0.35), flow);
-        gl_FragColor = vec4(c * a * uGain * 0.7, a * 0.8);
+        vec3 d = normalize(vD);
+        vec2 p = vec2(d.x * 2.6 + d.y * 0.9, d.z * 2.6 - d.y * 1.3);
+        float n = aFbm(p * 1.4 + 3.1), m = aFbm(p * 2.3 - 7.7);
+        vec3 col = vec3(0.004, 0.006, 0.018);
+        col += vec3(0.10, 0.04, 0.16) * smoothstep(0.45, 0.85, n) * 0.6;
+        col += vec3(0.02, 0.10, 0.12) * smoothstep(0.5, 0.9, m) * 0.5;
+        // the sun's glare spreading into the dark round it
+        float s = max(dot(d, uSun), 0.0);
+        col += vec3(1.0, 0.82, 0.55) * (pow(s, 40.0) * 0.6 + pow(s, 6.0) * 0.06);
+        gl_FragColor = vec4(col, 1.0);
       }`,
-    transparent: true,
+    side: THREE.BackSide,
     depthWrite: false,
-    blending: THREE.AdditiveBlending,
-    side: THREE.DoubleSide,
-    toneMapped: false,
     fog: false,
   })
 }
 
-/**
- * Solar Crown: a gold road laid in loops over the face of a star. No ground,
- * only the boiling surface far below; flares arch over the road, station rings
- * spin round it, and twice it simply ends and you jump to the next span. The
- * star wakes on the second lap with a great eruption, and on the last, plasma
- * columns break loose and sweep across the road.
+/*
+ * Solar Crown: a circuit round an orbital station above a gas giant, the sun
+ * blazing off to one side. Out along the main deck, up round the habitat
+ * modules and a boosted leap between two of them; up through the station's
+ * crown to its highest spire and off the edge on wings (or down across the
+ * solar array, low and quicker); a jump between docking arms (or the
+ * maintenance tube, enclosed and safe), and back past the crown to the deck.
+ * On the way, a corkscrew turns the deck right over once.
+ *
+ * Lap 2: a solar flare: the sun swells and the solar wind pushes at you on
+ * the open spans. Last lap: debris from the flare tumbles across one lane at
+ * a time.
  */
 export const solar: TrackDef = {
   id: 'solar',
@@ -74,198 +86,294 @@ export const solar: TrackDef = {
   bank: 3,
   maxBank: 0.28,
   rail: 'LR',
-  accent: 0xffcf4a,
-  sea: -30,
+  accent: 0x6ad8ff,
+  sea: -1e5,
   groundBelow: 1e6,
   piers: 'none',
   rails: 'steel',
   deck: 'steel',
-  road: { lines: 'circuit', kerbColors: [0xffcf4a, 0x8a2a08], grime: 0x6a4a1a, tone: 1.15, edgeLine: 0xffe8a0, sheen: 0.6 },
+  road: { lines: 'circuit', kerbColors: [0xe8f0f8, 0x2a6aa8], grime: 0x3a4250, tone: 1.05, edgeLine: 0x9adfff, sheen: 0.5 },
   look: {
-    tod: 'midday', noSky: true, generatedSky: true, fog: [0.3, 0.08, 0.02], fogDensity: 0.00022, fogBase: STAR_Y, fogFall: 0.004, sunGlow: 0,
-    exposure: 1.0, sun: 0.7, hemi: 0.55, bloom: 0.55, env: 0.5, stars: 1,
-    grade: [1.15, 1.1, 0.02, 0.004, 0, 1.08, 0.96, 0.86, 0.36],
+    tod: 'midday', noSky: true, generatedSky: true, fog: [0.02, 0.03, 0.06], fogDensity: 0.00012, fogBase: -600, fogFall: 0.001, sunGlow: 0,
+    exposure: 1.05, sun: 0.55, hemi: 0.7, bloom: 0.32, env: 0.7, stars: 1,
+    grade: [1.08, 1.1, 0.004, 0.006, 0.014, 1.02, 1.0, 1.02, 0.36],
   },
   points: [
-    [0, 40, 0, R],
-    [120, 40, -4, { ...R, pad: 0 }],
-    [222, 44, -40, R],
-    [272, 52, -120, R],
-    [244, 60, -200, R],
-    // a kick up off the end of the span, and a long drop to the next one
-    [222, 60.5, -222, R],
-    [176, 63, -240, { gap: true }],
-    [130, 49, -252, R],
-    [100, 44, -252, R],
-    [30, 36, -238, R],
-    [-40, 30, -252, { ...R, pad: 0 }],
-    [-112, 26, -222, R],
-    [-172, 32, -160, R],
-    [-202, 40, -90, R],
-    [-200, 42, -64, R],
-    [-186, 50, -26, { gap: true }],
-    [-160, 36, 18, R],
-    [-140, 40, 40, R],
-    [-82, 36, 62, R],
-    [-36, 38, 30, R],
+    [0.0, 40, 0.0, { ...R, w: 22 }],
+    [156.8, 40, -4.5, { ...R, pad: 0 }],
+    [291.2, 42, -44.8, R],
+    [380.8, 48, -145.6, R],
+    [369.6, 56, -268.8, R],
+    [280.0, 62, -358.4, { ...R, items: true }],
+    [212.8, 62, -378.6, { ...R, pad: 0 }],
+    [174.7, 62, -380.8, { ...R, rail: '', pad: 0 }],
+    [140.7, 65.3, -381.8, { gap: true }],
+    [124.7, 64.3, -382.6, { gap: true }],
+    [101.7, 62.3, -383.4, { ...R, w: 26 }],
+    [-11.2, 58, -376.3, R],
+    [-100.8, 64, -347.2, R],
+    [-190.4, 74, -280.0, R],
+    [-240.8, 84, -190.4, { ...R, items: true }],
+    [-255.4, 88, -112.0, { ...R, pad: 0, rail: '' }],
+    [-256.4, 89, -100.0, { gap: true, glide: true }],
+    [-259.4, 81, -50.0, { gap: true, glide: true }],
+    [-262.4, 73, 0.0, { gap: true, glide: true }],
+    [-264.4, 67, 32.0, { gap: true, glide: true }],
+    [-266.4, 62, 64.0, { ...R, w: 28 }],
+    [-248.6, 54, 168.0, R],
+    [-179.2, 46, 263.2, R],
+    // the corkscrew: the deck turns right over once; keep your speed up through the top
+    [-151, 44.5, 272.5, { ...R, roll: 2.094 }],
+    [-123, 43, 281.8, { ...R, roll: 4.189 }],
+    [-95, 41.5, 291, { ...R, roll: 6.283 }],
+    [-67.2, 40, 300.2, { ...R, items: true }],
+    [44.8, 38, 282.2, R],
+    [112.0, 37, 273.3, { ...R, rail: '', pad: 0 }],
+    [148.0, 40.5, 271.0, { gap: true }],
+    [190.0, 35, 267.6, { ...R, w: 20 }],
+    [293.4, 34, 221.8, R],
+    [320.3, 36, 134.4, R],
+    [179.2, 38, 116.5, R],
+    [33.6, 39, 129.9, R],
+    [-112.0, 40, 103.0, R],
+    [-168.0, 40, 38.1, R],
+    [-112.0, 40, -4.5, R],  ],
+  // two full loops: one on the run out from the deck, one on the way home
+  loops: [{ x: 225, z: -25, r: 13, side: 6 }, { x: 105, z: 123, r: 13, side: -6 }],
+  branches: [
+    {
+      // down across the solar array: lower, on the trusses between the panels, and shorter
+      name: 'Solar array', from: 12, to: 21, odds: 0.45,
+      points: [
+        [-190, 60, -352, { ...R, w: 14 }],
+        [-310, 50, -262, { ...R, w: 14, items: true }],
+        [-362, 48, -120, { ...R, w: 14 }],
+        [-346, 50, 40, { ...R, w: 14, pad: 0 }],
+      ],
+    },
+    {
+      // the maintenance tube: enclosed glass, no jump, a little further round
+      name: 'Maintenance tube', from: 26, to: 31, odds: 0.4,
+      points: [
+        [30, 36, 335, { ...R, tunnel: true, w: 14 }],
+        [150, 35, 345, { ...R, tunnel: true, w: 14 }],
+        [255, 34, 300, { ...R, tunnel: true, w: 14 }],
+      ],
+    },
   ],
-  ground: () => STAR_Y - 200,
+  ground: () => -2000,
   surfaceAt: () => 'concrete',
   async build(k) {
     const { circuit: c, world: w, d, root } = k
-    gantry(k, 'Solar Crown', '#ffcf4a')
-    // a gold road
-    k.road.mat.color.set(0xa07a38)
-    k.road.mat.metalness = 0.6
-    k.road.mat.roughness = 0.4
-    arrows(k, 0xffcf4a)
+    gantry(k, 'Solar Crown', '#6ad8ff')
+    arrows(k, 0x6ad8ff)
+    // a bright alloy road
+    k.road.mat.color.set(0x9aa4b0)
+    k.road.mat.metalness = 0.45
+    k.road.mat.roughness = 0.38
 
-    // ── the star: a vast curved surface under everything
-    const starMat = photosphere()
-    const star = new THREE.Mesh(new THREE.SphereGeometry(6000, 96, 48, 0, Math.PI * 2, 0, 0.6), starMat)
-    star.position.set(0, STAR_Y - 6000, -100)
-    star.frustumCulled = false
-    root.add(star)
-    // its light comes from below
-    const under = new THREE.DirectionalLight(0xffa040, 1.6)
-    under.position.set(40, -200, 60)
-    root.add(under)
-    root.add(under.target)
-    const rim = new THREE.HemisphereLight(0x302040, 0xff7020, 0.9)
-    root.add(rim)
-    // the dark of space, full of stars
-    const sp = new Float32Array(3000 * 3)
-    for (let q = 0; q < 3000; q++) {
-      const u = Math.random(), th = Math.random() * 6.28, ph = Math.acos(u * 0.98)
-      sp.set([Math.cos(th) * Math.sin(ph) * 5000, Math.cos(ph) * 5000 - 400, Math.sin(th) * Math.sin(ph) * 5000], q * 3)
+    // ── the sky: deep space, the stars, the sun off to one side
+    const space = new THREE.Mesh(new THREE.SphereGeometry(5000, 48, 24), spaceMaterial())
+    space.frustumCulled = false
+    root.add(space)
+    const sp = new Float32Array(4000 * 3)
+    for (let q = 0; q < 4000; q++) {
+      const u = Math.random() * 2 - 1, th = Math.random() * 6.28, s = Math.sqrt(1 - u * u)
+      sp.set([Math.cos(th) * s * 4600, u * 4600, Math.sin(th) * s * 4600], q * 3)
     }
     const sg = new THREE.BufferGeometry()
     sg.setAttribute('position', new THREE.BufferAttribute(sp, 3))
-    const stars = new THREE.Points(sg, new THREE.PointsMaterial({ color: 0xffffff, size: 2.2, sizeAttenuation: false, fog: false, transparent: true, opacity: 0.85 }))
+    const stars = new THREE.Points(sg, new THREE.PointsMaterial({ color: 0xdfe8ff, size: 1.8, sizeAttenuation: false, fog: false, transparent: true, opacity: 0.8 }))
     stars.frustumCulled = false
     root.add(stars)
-    const bg = new THREE.Mesh(new THREE.SphereGeometry(7000, 32, 16), new THREE.MeshBasicMaterial({ color: 0x050208, side: THREE.BackSide, fog: false }))
-    root.add(bg)
+    const sunPos = SUN.clone().multiplyScalar(4000)
+    const sunMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(9, 8, 6.4), fog: false, toneMapped: false })
+    const sun = new THREE.Mesh(new THREE.SphereGeometry(130, 32, 16), sunMat)
+    sun.position.copy(sunPos)
+    root.add(sun)
+    const corona = new THREE.Sprite(new THREE.SpriteMaterial({ map: softDot(), color: new THREE.Color(1.6, 1.25, 0.8), transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, toneMapped: false }))
+    corona.position.copy(sunPos)
+    corona.scale.setScalar(1150)
+    root.add(corona)
+    const sunLight = new THREE.DirectionalLight(0xfff0dc, 2.4)
+    sunLight.position.copy(SUN).multiplyScalar(800)
+    root.add(sunLight, sunLight.target)
+    // the planet's light bouncing up from below, cool teal
+    root.add(new THREE.HemisphereLight(0x8aa8d8, 0x2a5a68, 0.7))
 
-    // ── the road's gold spine and its underside lights
-    const spine = new Mesher(), lights: THREE.Matrix4[] = []
-    for (let i = 0; i < c.count; i += 3) {
-      if (c.gap[i]) continue
-      const p = c.samples[i]!, r = c.rights[i]!, t = c.tangents[i]!, half = c.widths[i]! / 2
+    // ── the gas giant below, with a thin ring system
+    const giant = new THREE.Mesh(new THREE.SphereGeometry(PLANET.r, 128, 64), giantMaterial())
+    giant.position.set(PLANET.x, PLANET.y, PLANET.z)
+    giant.frustumCulled = false
+    root.add(giant)
+    const ringGeo = new THREE.RingGeometry(PLANET.r * 1.35, PLANET.r * 2.1, 128, 4)
+    const ringTex = new THREE.DataTexture(new Uint8Array(Array.from({ length: 256 }, (_, i) => { const v = Math.floor(120 + 100 * Math.abs(Math.sin(i * 0.37) * Math.cos(i * 0.11))); return [v, v - 10, v - 30, Math.floor(60 + 120 * Math.abs(Math.sin(i * 0.21)))] }).flat()), 256, 1)
+    ringTex.needsUpdate = true
+    // map the texture across the ring's width
+    const ruv = ringGeo.attributes['uv']!, rpos = ringGeo.attributes['position']!
+    for (let i = 0; i < ruv.count; i++) ruv.setXY(i, (Math.hypot(rpos.getX(i), rpos.getY(i)) - PLANET.r * 1.35) / (PLANET.r * 0.75), 0.5)
+    const rings = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ map: ringTex, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false, fog: false, color: new THREE.Color(1.1, 1.05, 0.95) }))
+    rings.position.copy(giant.position)
+    rings.rotation.set(-Math.PI / 2 + 0.22, 0, 0.3)
+    rings.frustumCulled = false
+    root.add(rings)
+
+    // ── the road's structure: white deck panels, a blue light strip, ribs underneath
+    const deck = new Mesher(), ribs = new Mesher(), strip: THREE.Matrix4[] = []
+    for (const p0 of c.all) for (let i = 0; i < p0.count; i += 3) {
+      if (p0.gap[i]) continue
+      const p = p0.samples[i]!, r = p0.rights[i]!, t = p0.tangents[i]!, half = p0.widths[i]! / 2
       const yaw = Math.atan2(-t.x, -t.z), pitch = Math.asin(THREE.MathUtils.clamp(t.y, -1, 1))
-      spine.box(c.widths[i]! + 1.2, 0.5, 6.6, p.x, p.y - 0.65, p.z, 0xc8962a, yaw, 0, pitch)
-      spine.box(3, 2.4, 6.6, p.x, p.y - 2, p.z, 0x6a4a1a, yaw, 0, pitch)
-      if (i % 9 === 0) {
-        spine.box(c.widths[i]! + 4, 0.6, 0.8, p.x, p.y - 1.6, p.z, 0xd8a83a, yaw)
-        for (const s of [-1, 1]) lights.push(trs(p.x + r.x * s * (half + 1.9), p.y - 1.6, p.z + r.z * s * (half + 1.9), 0, 0.35))
+      deck.box(p0.widths[i]! + 1.4, 0.6, 6.6, p.x, p.y - 0.7, p.z, 0xdfe4ea, yaw, 0, pitch)
+      ribs.box(4, 2.6, 6.6, p.x, p.y - 2.2, p.z, 0x5a6270, yaw, 0, pitch)
+      if (i % 12 === 0) {
+        ribs.box(p0.widths[i]! + 5, 0.8, 1, p.x, p.y - 1.6, p.z, 0x8a94a2, yaw)
+        for (const s of [-1, 1]) strip.push(trs(p.x + r.x * s * (half + 2.2), p.y - 1.5, p.z + r.z * s * (half + 2.2), yaw, new THREE.Vector3(0.4, 0.4, 2.6)))
       }
     }
-    place(k, spine, surface('metal', { metal: 0.95, rough: 0.22 }))
-    const lightMat = glow(4, 2.6, 0.8)
-    d.instanced(new THREE.SphereGeometry(1, 6, 4), lightMat, lights, false)
-    // jump lips
+    place(k, deck, surface('paint', { rough: 0.35, metal: 0.4 }))
+    place(k, ribs, surface('metal', { metal: 0.85, rough: 0.3 }))
+    const stripMat = glow(0.6, 2.4, 4.2)
+    d.instanced(new THREE.BoxGeometry(1, 1, 1), stripMat, strip, false)
+    // jump lips: striped warning plates and blue lamps
     const lips = new Mesher()
-    for (let i = 0; i < c.count; i++) {
-      const j = (i + 1) % c.count
-      if (c.gap[i] === c.gap[j]) continue
-      const p = c.samples[i]!, t = c.tangents[i]!
-      lips.box(c.widths[i]! + 1.6, 3, 1.6, p.x, p.y - 1.6, p.z, 0xffcf4a, Math.atan2(-t.x, -t.z))
+    for (const p0 of c.all) for (let i = 1; i < p0.count; i++) {
+      if (p0.gap[i - 1] || !p0.gap[i]) continue
+      const p = p0.samples[i - 1]!, t = p0.tangents[i - 1]!
+      lips.box(p0.widths[i - 1]! + 1.6, 3, 1.6, p.x, p.y - 1.6, p.z, 0xffc83a, Math.atan2(-t.x, -t.z))
     }
-    place(k, lips, surface('metal', { metal: 0.9, rough: 0.2 }))
+    place(k, lips, surface('paint', { rough: 0.3 }))
+    glassTube(k, c.branches[1]!)
+    loopTracks(k, 0xdfe4ea, 0x6ad8ff)
 
-    // ── station rings the road runs through, turning slowly
-    const rings: THREE.Mesh[] = []
-    for (const fr of [0.1, 0.42, 0.7, 0.93]) {
-      const i = Math.floor(c.count * fr), p = c.samples[i]!, t = c.tangents[i]!
-      const g = new Mesher()
-      g.add(new THREE.TorusGeometry(19, 1.4, 10, 64), new THREE.Matrix4(), 0xd8b050)
-      for (let q = 0; q < 12; q++) g.box(3, 3, 3.6, Math.cos(q * 0.5236) * 19, Math.sin(q * 0.5236) * 19, 0, 0x8a6a2a)
-      const m = new THREE.Mesh(g.build(), surface('metal', { metal: 0.9, rough: 0.25 }))
-      m.position.set(p.x, p.y + 6, p.z)
-      m.lookAt(p.x + t.x, p.y + 6 + t.y, p.z + t.z)
-      root.add(m)
-      rings.push(m)
-      const glowRing = new THREE.Mesh(new THREE.TorusGeometry(19, 0.35, 6, 64), glow(4, 2.2, 0.6))
-      glowRing.position.z = 1.9
-      m.add(glowRing)
+    // ── the crown: the station's great ring, its spires rising round it
+    const crown = new Mesher(), windows: THREE.Matrix4[] = []
+    crown.add(new THREE.TorusGeometry(CROWN.r, 6, 16, 128), trs(CROWN.x, CROWN.y - 30, CROWN.z, 0, 1, Math.PI / 2), 0xe8ecf0)
+    crown.add(new THREE.TorusGeometry(CROWN.r - 9, 1.6, 8, 128), trs(CROWN.x, CROWN.y - 30, CROWN.z, 0, 1, Math.PI / 2), 0x6a7480)
+    for (let q = 0; q < 12; q++) {
+      const a = (q / 12) * Math.PI * 2, x = CROWN.x + Math.cos(a) * CROWN.r, z = CROWN.z + Math.sin(a) * CROWN.r
+      if (d.roadGap(x, z) < 16) continue
+      const tall = q % 3 === 0 ? 120 : q % 3 === 1 ? 80 : 60
+      crown.add(new THREE.CylinderGeometry(1.5, 7, tall, 8), trs(x, CROWN.y - 30 + tall / 2, z), 0xf0f2f4)
+      windows.push(trs(x, CROWN.y - 30 + tall + 1.5, z, 0, 2.2))
+      w.addPost(x, z, 7.5)
     }
+    // spokes from the ring to the hub, and the hub itself
+    crown.add(new THREE.CylinderGeometry(26, 30, 50, 24), trs(CROWN.x, CROWN.y - 40, CROWN.z), 0xd8dde4)
+    crown.add(new THREE.SphereGeometry(24, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2), trs(CROWN.x, CROWN.y - 15, CROWN.z), 0x9ac8e8)
+    for (let q = 0; q < 6; q++) {
+      const a = (q / 6) * Math.PI * 2 + 0.26
+      crown.bar(new THREE.Vector3(CROWN.x + Math.cos(a) * 28, CROWN.y - 30, CROWN.z + Math.sin(a) * 28), new THREE.Vector3(CROWN.x + Math.cos(a) * (CROWN.r - 4), CROWN.y - 30, CROWN.z + Math.sin(a) * (CROWN.r - 4)), 2.2, 0xc8cdd4, 8)
+    }
+    place(k, crown, surface('paint', { rough: 0.3, metal: 0.5 }))
+    d.instanced(new THREE.SphereGeometry(1, 10, 6), glow(1.2, 3.6, 5), windows, false)
 
-    // ── prominences: great arches of plasma, some right over the road
-    const plas = plasma()
-    const arches: { m: THREE.Mesh; base: number }[] = []
-    const arch = (x: number, z: number, span: number, height: number, yaw: number, tube: number): void => {
-      const curve = new THREE.QuadraticBezierCurve3(new THREE.Vector3(-span / 2, 0, 0), new THREE.Vector3(0, height * 2, 0), new THREE.Vector3(span / 2, 0, 0))
-      const m = new THREE.Mesh(new THREE.TubeGeometry(curve, 64, tube, 10, false), plas)
-      m.position.set(x, STAR_Y, z)
-      m.rotation.y = yaw
-      m.frustumCulled = false
-      root.add(m)
-      arches.push({ m, base: height })
-    }
-    for (const fr of [0.2, 0.55, 0.82]) {
-      const i = Math.floor(c.count * fr), p = c.samples[i]!, t = c.tangents[i]!
-      arch(p.x, p.z, 220, p.y - STAR_Y + 46, Math.atan2(t.x, t.z) + Math.PI / 2, 9)
-    }
-    for (let q = 0; q < 10; q++) {
-      const a = d.rand() * 6.28, r = 500 + d.rand() * 1600
-      arch(Math.cos(a) * r, -100 + Math.sin(a) * r, 300 + d.rand() * 500, 140 + d.rand() * 320, d.rand() * 6, 16 + d.rand() * 20)
-    }
-    // the great eruption from lap two: a tall arch rising behind the start
-    arch(60, -560, 600, 10, 0.3, 34)
-    const eruption = arches[arches.length - 1]!
-
-    // ── mirrors: a flock of collector panels hanging in the light
-    const mirrors: THREE.Matrix4[] = []
-    for (let q = 0; q < 140; q++) {
-      const a = d.rand() * 6.28, r = 90 + d.rand() * 500, x = Math.cos(a) * r, z = -100 + Math.sin(a) * r
-      if (d.roadGap(x, z) < 20) continue
-      mirrors.push(trs(x, -10 + d.rand() * 100, z, d.rand() * 6, new THREE.Vector3(8, 0.3, 5), 0.9 + d.rand() * 0.4))
-    }
-    d.instanced(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ color: 0xffe0a0, metalness: 1, roughness: 0.08, envMapIntensity: 2 }), mirrors, false)
-
-    // ── the last lap: plasma columns that sweep across the road
-    const COLS = 3
-    const colMat = plasma()
-    const columns = Array.from({ length: COLS }, (_, q) => {
-      const m = new THREE.Mesh(new THREE.CylinderGeometry(3, 5, 1, 16, 4, true), colMat)
-      m.visible = false
-      m.frustumCulled = false
-      root.add(m)
-      const solid: Solid = { x: 0, z: 0, r: 3.4, top: 1e6 }
-      return { m, solid, i: Math.floor(c.count * (0.25 + q * 0.27)), ph: q * 2, on: false }
-    })
-    const embers = drift(k, 160, 0xffa040, 1.4, -3)
-    const em = embers.material as THREE.PointsMaterial
-    em.blending = THREE.AdditiveBlending
-
-    k.onFrame((f) => {
-      for (const [q, m] of rings.entries()) m.rotateZ(f.dt * (q % 2 ? 0.2 : -0.15))
-      const lap = f.lap, total = f.totalLaps
-      const wake = lap >= 2 ? 1 : 0
-      starMat.uniforms['uHeat']!.value = 1 + wake * 0.15 + Math.sin(f.time * 0.8) * 0.03
-      // the eruption grows over a few seconds once lap two starts
-      const target = wake ? 520 : 10
-      const s = eruption.m.scale.y + (target / 10 - eruption.m.scale.y) * Math.min(1, f.dt * 0.3)
-      eruption.m.scale.set(1, Math.max(1, s), 1)
-      plas.uniforms['uGain']!.value = 1 + wake * 0.3
-      under.intensity = 1.6 + wake * 0.6 + Math.sin(f.time * 1.3) * 0.12
-      em.opacity = 0.35 + wake * 0.4
-      const last = total > 1 && lap >= total
-      for (const col of columns) {
-        if (last !== col.on) {
-          col.on = last
-          col.m.visible = last
-          if (last) w.movers.push(col.solid)
-          else w.movers.splice(w.movers.indexOf(col.solid), 1)
+    // ── habitat modules and solar wings out in the open
+    const mods = new Mesher(), lit: THREE.Matrix4[] = [], panels: THREE.Matrix4[] = [], truss = new Mesher()
+    const spots: [number, number, number, number][] = [[260, 10, -200, 0.4], [430, 20, 40, 1.2], [60, 0, -560, 0.1], [-420, 30, -360, 2], [-460, 20, 260, 0.8], [120, 0, 420, 1.6], [420, -10, 380, 2.4]]
+    for (const [x, y, z, yaw] of spots) {
+      if (d.roadGap(x, z) < 50) continue
+      const L = 90 + d.rand() * 60
+      mods.add(new THREE.CylinderGeometry(16, 16, L, 24), trs(x, y, z, yaw, 1, Math.PI / 2), 0xe4e8ec)
+      for (const e of [-1, 1]) mods.add(new THREE.SphereGeometry(16, 20, 10), trs(x + Math.cos(yaw) * e * L / 2, y, z - Math.sin(yaw) * e * L / 2), 0xd0d6dc)
+      for (let q = -3; q <= 3; q++) lit.push(trs(x + Math.cos(yaw) * q * L / 8, y + 6, z - Math.sin(yaw) * q * L / 8, yaw, new THREE.Vector3(5, 1.2, 16.4)))
+      // a pair of solar wings off each module
+      for (const e of [-1, 1]) {
+        const ox = Math.sin(yaw) * e, oz = Math.cos(yaw) * e
+        truss.bar(new THREE.Vector3(x + ox * 16, y, z + oz * 16), new THREE.Vector3(x + ox * 150, y, z + oz * 150), 0.8, 0x8a94a2, 6)
+        for (let s = 0; s < 8; s++) {
+          const u = 26 + s * 16
+          for (const f of [-1, 1]) panels.push(trs(x + ox * u + Math.cos(yaw) * f * 9, y, z + oz * u - Math.sin(yaw) * f * 9, yaw, new THREE.Vector3(14, 0.3, 15), 0.25))
         }
-        if (!last) continue
-        const p = c.samples[col.i]!, r = c.rights[col.i]!
-        const lat = Math.sin(f.time * 0.5 + col.ph) * (c.widths[col.i]! / 2 + 6)
-        const x = p.x + r.x * lat, z = p.z + r.z * lat
-        col.solid.x = x; col.solid.z = z
-        col.m.position.set(x, (p.y + STAR_Y) / 2 + 20, z)
-        col.m.scale.set(1, p.y - STAR_Y + 40, 1)
+      }
+    }
+    // the solar array the branch runs across
+    const arr = c.branches[0]!
+    for (let i = 10; i < arr.count - 10; i += 9) {
+      const p = arr.samples[i]!, r = arr.rights[i]!, t = arr.tangents[i]!, yaw = Math.atan2(-t.x, -t.z)
+      for (const s of [-1, 1]) for (let n = 0; n < 4; n++) {
+        const off = s * (arr.widths[i]! / 2 + 10 + n * 17)
+        panels.push(trs(p.x + r.x * off, p.y - 2.5, p.z + r.z * off, yaw, new THREE.Vector3(15, 0.3, 16), 0.2))
+      }
+      truss.box(arr.widths[i]! + 150, 0.8, 0.8, p.x, p.y - 3.2, p.z, 0x8a94a2, yaw)
+    }
+    place(k, mods, surface('paint', { rough: 0.35, metal: 0.4 }))
+    place(k, truss, surface('metal', { metal: 0.9, rough: 0.3 }))
+    d.instanced(new THREE.BoxGeometry(1, 1, 1), glow(1.6, 2.2, 3), lit, false)
+    const cellTex = new THREE.DataTexture(new Uint8Array(Array.from({ length: 64 }, (_, i) => ((i % 8) === 0 || (i >> 3) === 0) ? [200, 210, 220, 255] : [18, 34, 74, 255]).flat()), 8, 8)
+    cellTex.wrapS = cellTex.wrapT = THREE.RepeatWrapping
+    cellTex.repeat.set(4, 4)
+    cellTex.magFilter = THREE.NearestFilter
+    cellTex.needsUpdate = true
+    d.instanced(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ map: cellTex, metalness: 0.7, roughness: 0.18, envMapIntensity: 1.6 }), panels, false)
+
+    // ── asteroids drifting far out
+    const rock = lumpy(new THREE.IcosahedronGeometry(1, 2), 0.35, 1.5, 11)
+    const roids = new Mesher()
+    for (let q = 0; q < 70; q++) {
+      const a = d.rand() * 6.28, rr = 700 + d.rand() * 1600, s = 4 + d.rand() * d.rand() * 40
+      roids.add(rock, trs(Math.cos(a) * rr, -120 + d.rand() * 400, -100 + Math.sin(a) * rr, d.rand() * 6, new THREE.Vector3(s, s * (0.6 + d.rand() * 0.4), s * (0.7 + d.rand() * 0.5))), [0x5a5550, 0x4a4642, 0x6a625a][q % 3]!)
+    }
+    const roidMesh = place(k, roids, surface('rock'))
+
+    // ── the flare and the debris
+    const debrisGeo = lumpy(new THREE.IcosahedronGeometry(1, 1), 0.3, 1.4, 5)
+    const debris = [0.3, 0.56, 0.82].map((fr, q) => {
+      const m = new THREE.Mesh(debrisGeo, new THREE.MeshStandardMaterial({ color: 0x4a3a32, roughness: 0.9, emissive: new THREE.Color(0.9, 0.3, 0.05), emissiveIntensity: 0.8 }))
+      m.scale.setScalar(2.4)
+      m.visible = false
+      root.add(m)
+      const solid: Solid = { x: 1e6, z: 1e6, r: 2.6, top: -1e6 }
+      w.movers.push(solid)
+      return { m, solid, i: Math.floor(c.count * fr), ph: q * 2.1 }
+    })
+    k.onFrame((f) => {
+      const flare = f.lap >= 2 ? 1 : 0
+      const pulse = 1 + flare * (0.35 + Math.sin(f.time * 0.7) * 0.1)
+      sun.scale.setScalar(pulse)
+      corona.scale.setScalar(1150 * pulse * (1 + flare * 0.4))
+      // the sky stays put round the camera: it is infinitely far away
+      const eye = f.camera.position
+      space.position.copy(eye)
+      stars.position.copy(eye)
+      sun.position.copy(eye).add(sunPos)
+      corona.position.copy(sun.position)
+      sunLight.intensity = 2.4 + flare * 0.8
+      stripMat.color.setRGB(0.6 + flare * 1.4, 2.4, 4.2 - flare * 1.2)
+      // the solar wind on the open spans, gusting away from the sun
+      const gust = flare * Math.max(0, Math.sin(f.time * 0.37)) * (0.6 + 0.4 * Math.sin(f.time * 1.3))
+      w.wind.x = -SUN.x * gust * 2.4
+      w.wind.z = -SUN.z * gust * 2.4
+      roidMesh.rotation.y = f.time * 0.004
+      const last = f.totalLaps > 1 && f.lap >= f.totalLaps
+      for (const db of debris) {
+        db.m.visible = last
+        if (!last) { db.solid.top = -1e6; continue }
+        // tumbling across the left half of the road, never the whole width
+        const p = c.samples[db.i]!, r = c.rights[db.i]!, half = c.widths[db.i]! / 2
+        const lat = -half * (0.3 + 0.55 * (0.5 + 0.5 * Math.sin(f.time * 0.8 + db.ph)))
+        db.m.position.set(p.x + r.x * lat, p.y + 1.6, p.z + r.z * lat)
+        db.m.rotation.set(f.time * 1.3, f.time * 0.9, 0)
+        db.solid.x = db.m.position.x
+        db.solid.z = db.m.position.z
+        db.solid.top = p.y + 3
       }
     })
   },
+}
+
+/** The maintenance tube: glass hoops and panes round the road, lit blue from the floor. */
+function glassTube(k: BuildKit, tube: Circuit): void {
+  const { root } = k
+  const hoops = new Mesher()
+  const glass = new THREE.MeshStandardMaterial({ color: 0xa8d8f0, transparent: true, opacity: 0.18, roughness: 0.05, metalness: 0.2, side: THREE.DoubleSide, depthWrite: false })
+  const pane = new Mesher()
+  for (let i = 0; i < tube.count; i += 3) {
+    if (!tube.tunnel[i]) continue
+    const p = tube.samples[i]!, t = tube.tangents[i]!, half = tube.widths[i]! / 2 + 1.4, yaw = Math.atan2(-t.x, -t.z)
+    if (i % 9 === 0) hoops.add(new THREE.TorusGeometry(half, 0.35, 6, 24, Math.PI), trs(p.x, p.y - 0.6, p.z, yaw, 1), 0xdfe4ea)
+    pane.add(new THREE.CylinderGeometry(half, half, 6.6, 20, 1, true, Math.PI / 2, Math.PI), new THREE.Matrix4().compose(new THREE.Vector3(p.x, p.y - 0.6, p.z), new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2, yaw, 0, 'YXZ')), new THREE.Vector3(1, 1, 1)), 0xffffff)
+  }
+  place(k, hoops, surface('metal', { metal: 0.9, rough: 0.3 }))
+  root.add(new THREE.Mesh(pane.build(), glass))
 }

@@ -200,9 +200,15 @@
       <div id="end-table" class="end-table"></div>
       <div class="notice-actions">
         <button id="end-next" class="go-btn">Next race</button>
+        <button id="end-other" class="go-btn alt hidden">Choose another track</button>
+        <button id="end-replay" class="back-link">Watch replay</button>
         <button id="end-exit" class="back-link">Exit to menu</button>
       </div>
     </div>
+  </div>
+  <div id="replay-bar" class="hidden">
+    <span class="replay-tag">&#9679; REPLAY</span>
+    <button id="replay-skip" class="back-link">Skip</button>
   </div>
   <div id="cup-end" class="result-screen hidden">
     <div class="result-box">
@@ -323,6 +329,7 @@
     </div>
     <div class="touch-drive">
       <button id="touch-brake" class="touch-btn">&#9660;</button>
+      <button id="touch-item" class="touch-btn touch-item hidden">ITEM</button>
       <button id="touch-nitro" class="touch-btn touch-nitro">N2O</button>
       <button id="touch-accel" class="touch-btn touch-accel">&#9650;</button>
     </div>

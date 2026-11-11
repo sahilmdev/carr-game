@@ -11,13 +11,13 @@ export class Minimap {
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
-    private readonly track: Pick<Track, 'samples' | 'tangents' | 'spawnPosition'>
+    private readonly track: Pick<Track, 'samples' | 'tangents' | 'spawnPosition'> & { branches?: THREE.Vector3[][] }
   ) {
     this.ctx = canvas.getContext('2d')!
 
     // Fit track bounds into the canvas with padding
     let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity
-    for (const p of track.samples) {
+    for (const p of [...track.samples, ...(track.branches ?? []).flat()]) {
       minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x)
       minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z)
     }
@@ -33,6 +33,23 @@ export class Minimap {
     this.base.width = canvas.width
     this.base.height = canvas.height
     const bctx = this.base.getContext('2d')!
+    // forks and shortcuts: thinner, under the main loop
+    for (const br of track.branches ?? []) {
+      bctx.beginPath()
+      br.forEach((p, i) => {
+        const [x, y] = this.toCanvas(p.x, p.z)
+        if (i === 0) bctx.moveTo(x, y)
+        else bctx.lineTo(x, y)
+      })
+      bctx.lineJoin = 'round'
+      bctx.lineCap = 'round'
+      bctx.strokeStyle = 'rgba(255,255,255,0.6)'
+      bctx.lineWidth = 7
+      bctx.stroke()
+      bctx.strokeStyle = '#3a2a5a'
+      bctx.lineWidth = 4.5
+      bctx.stroke()
+    }
     bctx.beginPath()
     track.samples.forEach((p, i) => {
       const [x, y] = this.toCanvas(p.x, p.z)

@@ -4,7 +4,8 @@ import { GLSL_NOISE, windClock } from '../art/atmos'
 import { Mesher, place, surface } from '../art/arch'
 import { forest, grass } from '../art/foliage'
 import type { BuildKit, TrackDef, TrackPoint } from '../types'
-import { arrows, cloudTexture, crates, drift, gantry, glow, stands } from './parts'
+import type { Zone } from '../World'
+import { arrows, cloudTexture, crates, drift, findGap, gantry, glow, movingDeck, stands, zoneFx } from './parts'
 
 interface Isle { x: number; z: number; rx: number; rz: number; y: number; a: number }
 
@@ -213,10 +214,13 @@ export const sky: TrackDef = {
       // over the top of a moored airship: a timber deck laid along its back
       name: 'Airship', from: 11, to: 14, odds: 0.5,
       points: [
-        [556, 99, -690, { raised: true, deck: 'wood', w: 17, rail: '' }],
+        [556, 99, -690, { raised: true, deck: 'wood', w: 17, rail: 'LR' }],
         [505, 105, -755, { raised: true, deck: 'wood', w: 17, rail: 'LR' }],
-        [420, 112, -790, { raised: true, deck: 'wood', w: 17, rail: 'LR' }],
-        [340, 116, -790, { raised: true, deck: 'wood', w: 17, rail: '' }],
+        [446, 112, -786, { raised: true, deck: 'wood', w: 17, rail: 'LR' }],
+        // the airship itself: its deck is not moored fast, it drifts and rises under you
+        [412, 112, -790, { gap: true }],
+        [372, 112, -790, { gap: true }],
+        [336, 113, -789, { raised: true, deck: 'wood', w: 17, rail: 'LR' }],
       ],
     },
   ],
@@ -317,7 +321,20 @@ export const sky: TrackDef = {
     const beacons = glow(3.2, 1.8, 0.4)
     d.instanced(new THREE.SphereGeometry(1, 8, 6), beacons, lights, false)
 
-    mooredAirship(k, c.branches[0]!)
+    const shipMove = mooredAirship(k, c.branches[0]!)
+    // updrafts rising out of the clouds under the summit glide: fly through
+    // one and it lifts you, so a good line holds height all the way down
+    {
+      const ups: Zone[] = []
+      for (let i = 0; i < c.count; i++) {
+        if (!c.glide[i] || i % 26 !== 0) continue
+        const p = c.samples[i]!, r = c.rights[i]!, lat = (ups.length % 2 ? 1 : -1) * c.widths[i]! * 0.25
+        const z: Zone = { x: p.x + r.x * lat, z: p.z + r.z * lat, r: 10, y0: p.y - 45, y1: p.y + 6, rise: 16, air: true, on: true }
+        k.world.zones.push(z)
+        ups.push(z)
+      }
+      zoneFx(k, ups, 0xffffff, 0.9, 40)
+    }
     const drifters = rockDrift(k)
 
     // windmills on the hills
@@ -407,22 +424,28 @@ export const sky: TrackDef = {
       w.wind.z = blow * 0.6
       streaks.visible = gust > 0
       drifters(f.totalLaps > 1 && f.lap >= f.totalLaps, f.time)
+      shipMove(f.lap, f.dt)
       pm.opacity = 0.2 + gust * 0.3
     })
   },
 }
 
 /** The airship the deck road runs along: a great hull under the boards, moored to the islands. */
-function mooredAirship(k: BuildKit, deck: import('../Circuit').Circuit): void {
+function mooredAirship(k: BuildKit, deck: import('../Circuit').Circuit): (lap: number, dt: number) => void {
   const { root, world: w } = k
-  const a = deck.samples[Math.floor(deck.count * 0.15)]!, b = deck.samples[Math.floor(deck.count * 0.85)]!
-  const mid = a.clone().lerp(b, 0.5), yaw = Math.atan2(b.x - a.x, b.z - a.z)
+  // the deck rides on the ship over the gap in the boards
+  const g = findGap(deck, 392, -790)
+  const lip = deck.samples[g.i0 - 1]!, land = deck.samples[g.i1 + 1]!
+  const a = lip.clone().lerp(land, -0.25), b = lip.clone().lerp(land, 1.25)
+  const mid = lip.clone().lerp(land, 0.5), yaw = Math.atan2(land.x - lip.x, land.z - lip.z)
+  const fx = Math.sin(yaw), fz = Math.cos(yaw)
   const ship = airship()
   const scale = a.distanceTo(b) / 70
   ship.scale.setScalar(scale)
-  ship.position.set(mid.x, mid.y - 9.6 * scale - 0.6, mid.z)
   ship.rotation.y = yaw
   root.add(ship)
+  const len = Math.hypot(land.x - lip.x, land.z - lip.z) + 18
+  const top = movingDeck(k, deck.widths[g.i0 - 1]!, len, 0x7a5a3a, 0xe8c070, 0.8)
   // mooring lines down to posts on the islands either side
   const m = new Mesher()
   for (const end of [deck.samples[2]!, deck.samples[deck.count - 3]!]) {
@@ -435,6 +458,18 @@ function mooredAirship(k: BuildKit, deck: import('../Circuit').Circuit): void {
     }
   }
   place(k, m, surface('wood'), false)
+  // it drifts along its length and rises and sinks on the air; more from lap 2
+  let t = 0, prev = 0
+  return (lap, dt) => {
+    t += dt
+    const amp = lap >= 2 ? 6 : 4
+    const off = Math.sin(t * 0.45) * amp, bob = Math.sin(t * 0.7) * (lap >= 2 ? 1.1 : 0.7)
+    const v = dt > 0 ? (off - prev) / dt : 0
+    prev = off
+    const x = mid.x + fx * off, z = mid.z + fz * off, y = mid.y + bob
+    top.set(x, z, yaw, y, y, fx * v, fz * v)
+    ship.position.set(x, y - 9.6 * scale - 0.6, z)
+  }
 }
 
 /** Loose rocks drifting across the glass highway on the last lap. */

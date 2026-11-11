@@ -13,10 +13,12 @@ export type ItemKind = 'turbo' | 'triple' | 'dart' | 'seeker' | 'mine' | 'shield
 export const ITEM_KINDS: ItemKind[] = ['turbo', 'triple', 'dart', 'seeker', 'mine', 'shield']
 
 /** Odds by place: front, middle, back. */
-const ODDS: Record<'front' | 'mid' | 'back', [ItemKind, number][]> = {
+const ODDS: Record<'front' | 'mid' | 'back' | 'last', [ItemKind, number][]> = {
   front: [['mine', 0.35], ['shield', 0.25], ['dart', 0.3], ['turbo', 0.1]],
   mid: [['dart', 0.28], ['seeker', 0.22], ['turbo', 0.22], ['mine', 0.14], ['shield', 0.14]],
   back: [['triple', 0.35], ['seeker', 0.3], ['turbo', 0.25], ['dart', 0.1]],
+  // dead last: the strongest catch-up items, and a turbo comes as a pair
+  last: [['turbo', 0.45], ['seeker', 0.35], ['triple', 0.2]],
 }
 
 const ROLL = 1.1
@@ -53,7 +55,7 @@ const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(
 const tmp = new THREE.Vector3(), fwd = new THREE.Vector3()
 
 export class Items {
-  readonly group = new THREE.Group()
+  readonly group = (() => { const g = new THREE.Group(); g.userData['keep'] = true; return g })()
   private readonly boxes: Box[] = []
   private readonly crystals: THREE.InstancedMesh
   private readonly cores: THREE.InstancedMesh
@@ -84,6 +86,20 @@ export class Items {
         }
         if (best >= 0) main.items.push(best)
       }
+    }
+    // every side road long enough gets a row of its own, halfway along on its
+    // straightest stretch: taking the other way never means missing out on items
+    for (const b of main.branches) {
+      if (b.items.length || b.count < 50) continue
+      let best = -1, score = 1e9
+      for (let i = Math.floor(b.count * 0.3); i < Math.floor(b.count * 0.7); i++) {
+        let bad = false
+        for (let q = -12; q <= 12 && !bad; q += 3) { const j = i + q; bad = j < 0 || j >= b.count || !!b.gap[j] || !!b.roll[j] || b.pipe[j]! > 0 }
+        if (bad) continue
+        const sc = Math.abs(b.bends[i]!) * 4000 + Math.abs(i - b.count / 2) * 0.02
+        if (sc < score) { score = sc; best = i }
+      }
+      if (best >= 0) b.items.push(best)
     }
     // crystals: a rotating faceted gem, its colour running through the spectrum
     for (const c of main.all) for (const i of c.items) {
@@ -232,7 +248,8 @@ export class Items {
       this.onEvent('pickup', r, null, b.pos)
       if (h.kind || h.roll > 0) continue
       h.kind = this.draw(order.indexOf(r), order.length)
-      h.count = h.kind === 'triple' ? 3 : 1
+      const last = order.length > 2 && order.indexOf(r) === order.length - 1
+      h.count = h.kind === 'triple' ? 3 : h.kind === 'turbo' && last ? 2 : 1
       h.roll = ROLL
       h.hold = 0.4 + this.rand() * 2.2
       h.waited = 0
@@ -241,7 +258,7 @@ export class Items {
 
   private draw(place: number, of: number): ItemKind {
     const u = of > 1 ? place / (of - 1) : 0
-    const table = ODDS[u < 0.2 ? 'front' : u < 0.7 ? 'mid' : 'back']
+    const table = ODDS[of > 2 && place === of - 1 ? 'last' : u < 0.2 ? 'front' : u < 0.7 ? 'mid' : 'back']
     let x = this.rand()
     for (const [k, w] of table) { if ((x -= w) <= 0) return k }
     return table[0]![0]

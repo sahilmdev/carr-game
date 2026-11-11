@@ -17,18 +17,19 @@ export interface Driver {
 }
 
 export const DRIVERS: Driver[] = [
-  { name: 'Kai Mercer', pace: 0.985, mistakes: 0.07, bold: 0.45, color: 0x1f6fe0, car: 'stiletto' },
-  { name: 'Rosa Vance', pace: 0.97, mistakes: 0.17, bold: 0.85, color: 0xf2b21c, car: 'vector' },
-  { name: 'Otto Brandt', pace: 0.955, mistakes: 0.05, bold: 0.2, color: 0xeaeef2, car: 'stiletto' },
-  { name: 'Mina Sato', pace: 0.94, mistakes: 0.22, bold: 0.7, color: 0x18b67a, car: 'vector' },
-  { name: 'Theo Lund', pace: 0.92, mistakes: 0.13, bold: 0.35, color: 0xc23ae0, car: 'stiletto' },
+  { name: 'Kai Mercer', pace: 0.985, mistakes: 0.07, bold: 0.45, color: 0x1f6fe0, car: 'mohawk' },
+  { name: 'Rosa Vance', pace: 0.97, mistakes: 0.17, bold: 0.85, color: 0xf2b21c, car: 'cheetah' },
+  { name: 'Otto Brandt', pace: 0.955, mistakes: 0.05, bold: 0.2, color: 0xeaeef2, car: 'coupe' },
+  { name: 'Mina Sato', pace: 0.94, mistakes: 0.22, bold: 0.7, color: 0x18b67a, car: 'goblin' },
+  { name: 'Theo Lund', pace: 0.92, mistakes: 0.13, bold: 0.35, color: 0xc23ae0, car: 'patriot' },
 ]
 
 const probe: Hit = { nx: 0, nz: 0, depth: 0 }
 const LANES = [0, 3.5, -3.5, 6, -6]
 
 export type Difficulty = 'easy' | 'medium' | 'hard'
-const LEVEL: Record<Difficulty, number> = { easy: 0.8, medium: 0.89, hard: 0.97 }
+// how much of the road's safe speed a driver uses: the player found medium far too slow
+const LEVEL: Record<Difficulty, number> = { easy: 0.9, medium: 1.0, hard: 1.07 }
 
 /** A simulated driver: presses the same pedals the player does. */
 export class Rival {
@@ -70,13 +71,33 @@ export class Rival {
     this.scanT = 0.12
     const r = this.racer, w = r.world, y = r.car.position.y + 0.6
     const speed = Math.abs(r.car.getSpeed())
+    // riding a moving deck (a train): stay on it, straight down the middle
+    if (r.platform) { this.laneTo = 0; return }
     const clear = (lane: number): boolean => {
       for (const ahead of [8, 15, 24, 34 + speed * 0.3]) {
         const [c, i] = r.ahead(Math.round(ahead / 2), this.route), p = c.samples[i]!, rt = c.rights[i]!
         if (c.gap[i]) continue
-        if (w.collide(p.x + rt.x * lane, p.z + rt.z * lane, y, 2.3, probe)) return false
+        const x = p.x + rt.x * lane, z = p.z + rt.z * lane
+        // a deck you can drive onto (the ramp at the back of a train) isn't in the way
+        if (w.platforms.length && w.platformAt(x, z, y, 8)) return true
+        if (w.collide(x, z, y, 2.3, probe)) return false
       }
       return true
+    }
+    // a rideable deck dead ahead: line up on it
+    if (w.platforms.length) {
+      for (const at of [6, 14, 24, 36, 50]) {
+        const [c, i] = r.ahead(Math.round(at / 2), this.route), p = c.samples[i]!
+        if (!w.platformAt(p.x, p.z, y, 8)) continue
+        this.laneTo = 0
+        this.lane += (0 - this.lane) * (at < 25 ? 0.7 : 0.35)
+        this.laneTimer = 2
+        break
+      }
+    }
+    const blockedNear = (): boolean => {
+      const [c, i] = r.ahead(Math.round((8 + speed * 0.25) / 2), this.route), p = c.samples[i]!, rt = c.rights[i]!
+      return w.collide(p.x + rt.x * this.lane, p.z + rt.z * this.lane, y, 2.3, probe)
     }
     if (clear(this.lane)) return
     const half = r.path.widths[r.pi]! / 2 - 2.2
@@ -89,7 +110,11 @@ export class Rival {
         return
       }
     }
+    // nothing clear: only stop and wait if the blocker is close (a far one,
+    // a rolling snowball, has usually moved on by the time you get there)
+    if (!blockedNear()) return
     this.hold = 0.3
+    r.waiting = 1
   }
 
   drive(dt: number, leaderGap: number): void {
@@ -109,7 +134,9 @@ export class Rival {
         // a shut branch (odds 0) stays shut whoever is driving
         const odds = b.join!.odds <= 0 || this.burnt === b ? 0 : Math.min(0.95, Math.max(0.05, b.join!.odds + (this.d.bold - 0.5) * 0.3))
         if (this.burnt === b) this.burnt = null
-        this.route = this.rand() < odds ? b : null
+        // a branch with a jump only a boost clears: only with nitro in hand
+        const needsBoost = b.gap.some((g) => g) && !r.world.vines.some((v) => b.near(v.x, v.z)) && !r.world.zones.some((z) => !!z.lift && !!b.near(z.x, z.z))
+        this.route = this.rand() < odds && (!needsBoost || car.nitro > 0.4) ? b : null
       }
       // well past this fork (or not yet near it): decide afresh next time round
       if (d >= 160 && d <= N - 120 && this.routeFor === b && r.path === main) {
@@ -148,6 +175,15 @@ export class Rival {
     for (let k = 8; k <= 70 && !jump; k += 6) { const [gc, gi] = r.ahead(k, this.route); jump = gc.gap[gi]! }
     if (jump) this.laneTo = 0
 
+    // a wall panel coming up: the bold ones line up along it to ride it
+    for (const wr of r.world.wallRides) {
+      const ahead = wr.i0 - r.pi
+      if (r.path !== wr.c || ahead < 2 || ahead > 40 || this.d.bold < 0.45) continue
+      const half = r.path.widths[r.pi]! / 2
+      this.laneTo = wr.side * (half - 1.6)
+      this.lane += (this.laneTo - this.lane) * Math.min(1, dt * 2)
+      this.laneTimer = 2
+    }
     this.scan(dt)
 
     // a bend coming: maybe get it wrong
@@ -168,7 +204,16 @@ export class Rival {
     this.inBend = risky
     this.error = Math.max(0, this.error - dt)
 
-    const lane = this.lane + (this.error > 0 ? this.errorDir * (c.widths[ai]! / 2 + 7) : 0)
+    // a mistake over an open drop is a wobble out to the edge, not a dive off it;
+    // in an ordinary bend it's running wide onto the verge
+    const wide = exposed ? c.widths[ai]! / 2 - 1.6 : c.widths[ai]! / 2 + 7
+    let lane = this.lane + (this.error > 0 ? this.errorDir * wide : 0)
+    if (exposed) lane = Math.max(-(c.widths[ai]! / 2 - 1.2), Math.min(c.widths[ai]! / 2 - 1.2, lane))
+    // on a narrow deck with an open side, hold the middle
+    if (exposed && !this.error) {
+      const room = Math.max(0, c.widths[ai]! / 2 - 3.2)
+      lane = Math.max(openL ? -room : -1e3, Math.min(openR ? room : 1e3, lane))
+    }
     const t = c.samples[ai]!, rt = c.rights[ai]!
     const tx = t.x + rt.x * lane - p.x, tz = t.z + rt.z * lane - p.z
     let turn = Math.atan2(-tx, -tz) - car.heading
@@ -187,8 +232,12 @@ export class Rival {
 
     // how fast this driver dares go, with a little help or hindrance so the
     // pack stays close to the player
-    const band = THREE.MathUtils.clamp(leaderGap / 260, -0.06, 0.07)
+    // leaderGap > 0: the player is ahead by that many metres. Behind, a rival
+    // pushes harder in the bends and gets a little extra top speed (up to
+    // ~20 % a lap's worth back); far ahead of the player it eases off a touch.
+    const band = THREE.MathUtils.clamp(leaderGap / 180, -0.05, 0.16)
     const pace = this.d.pace * this.level * (1 + band)
+    car.catchUp = 1 + THREE.MathUtils.clamp(leaderGap / 500, -0.03, 0.2)
     // a jump coming: everything it's got, or it falls short
     // (but a real bend on the way to it still needs braking for)
     const bendLimit = Math.min(90, Math.sqrt(25 / Math.max(Math.abs(c.bends[ai]!), 0.0015)))

@@ -31,6 +31,12 @@ export interface PointOpts {
   items?: boolean
   /** Inside the hill: not carved into the ground, no supports. The track builds the bore. */
   tunnel?: boolean
+  /** On rails from here to the next locked point: no steering, you only lean into the bends. */
+  lock?: boolean
+  /** A half-pipe: both edges curve up into walls of this radius (m). */
+  pipe?: number
+  /** The road twists about its own length to this angle (radians, building up across points: a corkscrew runs 0, π, 2π). */
+  roll?: number
 }
 
 /**
@@ -134,6 +140,12 @@ export interface TrackDef {
   deck?: Deck
   /** Pull towards the ground in m/s² (default 26; less for long, floaty jumps). */
   gravity?: number
+  /** Highest a car may fly above the road line under it (a tube's roof). */
+  airCeiling?: number
+  /** Full vertical loops on the main road: entered at the sample nearest (x, z), radius r, drifting `side` metres sideways by the exit. */
+  loops?: { x: number; z: number; r: number; side?: number }[]
+  /** How much a chain of drifts pays: each drift released soon after the last adds this much boost. */
+  driftChain?: number
   /** Natural ground height before the road is carved in. */
   ground(x: number, z: number): number
   terrain?: TerrainStyle
@@ -169,4 +181,6 @@ export interface FrameInfo {
   camera: THREE.Camera
   /** Racer positions, player first. */
   player: THREE.Vector3
+  /** Every racer, player first: where it is on the main loop, the road it's on, and how many drifts it has finished in all. */
+  racers: { s: number; path: Circuit; drifts: number; isPlayer: boolean }[]
 }

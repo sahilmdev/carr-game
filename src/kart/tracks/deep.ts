@@ -1,12 +1,12 @@
 import * as THREE from 'three'
+import type { Zone } from '../World'
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js'
-import { fbm2, lumpy, ridged2, smooth, softDot, trs } from '../../game/biomes/kit'
-import { AssetLoader } from '../../game/AssetLoader'
+import { canvasTexture, fbm2, lumpy, ridged2, smooth, softDot, trs } from '../../game/biomes/kit'
 import { GLSL_NOISE, windClock } from '../art/atmos'
 import { Mesher, place, surface } from '../art/arch'
 import type { BuildKit, TrackDef, TrackPoint } from '../types'
 import type { Circuit } from '../Circuit'
-import { arrows, drift, gantry, glow } from './parts'
+import { arrows, drift, findGap, gantry, glow, roadZones, zoneFx } from './parts'
 
 const BASE = import.meta.env.BASE_URL
 const fbx = new FBXLoader()
@@ -15,16 +15,23 @@ const fbx = new FBXLoader()
 async function creature(name: string): Promise<THREE.BufferGeometry | null> {
   try {
     const src = await fbx.loadAsync(`${BASE}models/fish/${name}.fbx`)
-    src.updateMatrixWorld(true)
-    const flat = AssetLoader.flatten(src, true)
-    const box = new THREE.Box3().setFromObject(flat), size = box.getSize(new THREE.Vector3()), c = box.getCenter(new THREE.Vector3())
-    const geos = flat.children.map((m) => (m as THREE.Mesh).geometry)
-    const g = geos[0]!
+    // the models are skinned: take the mesh in its bind pose, not through the
+    // bones (that collapsed every creature to a point)
+    let mesh: THREE.Mesh | null = null
+    src.traverse((o) => { if (!mesh && (o as THREE.Mesh).isMesh) mesh = o as THREE.Mesh })
+    if (!mesh) return null
+    const g = (mesh as THREE.Mesh).geometry.clone()
+    for (const a of ['skinIndex', 'skinWeight']) g.deleteAttribute(a)
+    g.computeBoundingBox()
+    const box = g.boundingBox!, size = box.getSize(new THREE.Vector3()), c = box.getCenter(new THREE.Vector3())
     g.translate(-c.x, -c.y, -c.z)
     const s = 1 / Math.max(size.x, size.y, size.z)
     g.scale(s, s, s)
     // long axis to z, so the head leads
-    if (size.x > size.z) g.rotateY(Math.PI / 2)
+    if (size.y >= size.x && size.y >= size.z) g.rotateX(-Math.PI / 2)
+    else if (size.x > size.z) g.rotateY(Math.PI / 2)
+    g.computeVertexNormals()
+    g.computeBoundingSphere()
     return g
   } catch { return null }
 }
@@ -61,6 +68,18 @@ function waterDome(k: BuildKit): void {
 function tube(k: BuildKit, c: Circuit, strips: THREE.MeshBasicMaterial): void {
   const { root } = k
   const n = c.count, SEG = 14, ARC = Math.PI * 1.04, last = c.closed ? n : n - 1
+  // where another road runs alongside (a fork or a join) the tube stays open:
+  // its glass and hoops would otherwise stand across the other road
+  const shared = new Uint8Array(n)
+  for (let i = 0; i < n; i++) {
+    const p = c.samples[i]!
+    for (const o of k.circuit.all) {
+      if (o === c) continue
+      const j = o.track(p.x, p.z, 0, o.count, p.y), q = o.samples[j]!, r = o.rights[j]!, t = o.tangents[j]!
+      const lat = Math.abs((p.x - q.x) * r.x + (p.z - q.z) * r.z), along = Math.abs((p.x - q.x) * t.x + (p.z - q.z) * t.z)
+      if (along < 4 && Math.abs(p.y - q.y) < 6 && lat < (c.widths[i]! + o.widths[j]!) / 2 + 2) { shared[i] = 1; break }
+    }
+  }
   const pos: number[] = [], nor: number[] = [], idx: number[] = []
   const up = new THREE.Vector3(0, 1, 0)
   const rows: number[] = []
@@ -76,7 +95,7 @@ function tube(k: BuildKit, c: Circuit, strips: THREE.MeshBasicMaterial): void {
   }
   const row = SEG + 1
   for (let a2 = 0; a2 < rows.length - 1; a2++) {
-    if (c.gap[rows[a2]!] || c.gap[rows[a2 + 1]!]) continue
+    if (c.gap[rows[a2]!] || c.gap[rows[a2 + 1]!] || shared[rows[a2]!] || shared[rows[a2 + 1]!]) continue
     for (let s2 = 0; s2 < SEG; s2++) {
       const o = a2 * row + s2
       idx.push(o, o + 1, o + row, o + 1, o + row + 1, o + row)
@@ -100,7 +119,7 @@ function tube(k: BuildKit, c: Circuit, strips: THREE.MeshBasicMaterial): void {
   // a steel hoop every so often, a foot under some, and a jagged rim where the tube is broken
   const ribs = new Mesher(), legs = new Mesher()
   for (let i = 0; i < n; i += 13) {
-    if (c.gap[i]) continue
+    if (c.gap[i] || shared[i]) continue
     const p = c.samples[i]!, r = c.rights[i]!, R = c.widths[i]! / 2 + 0.55
     const yaw = Math.atan2(-c.tangents[i]!.x, -c.tangents[i]!.z)
     ribs.add(new THREE.TorusGeometry(1, 0.03, 6, 22, Math.PI), trs(p.x, p.y - 0.1, p.z, yaw, new THREE.Vector3(R, R * 0.72, 1)), 0x3a4048)
@@ -134,7 +153,7 @@ function tube(k: BuildKit, c: Circuit, strips: THREE.MeshBasicMaterial): void {
       strip.push(p.x + r.x * (a2 - 0.06), p.y + h, p.z + r.z * (a2 - 0.06), p.x + r.x * (a2 + 0.06), p.y + h, p.z + r.z * (a2 + 0.06))
     }
     for (let a2 = 0; a2 < rows.length - 1; a2++) {
-      if (c.gap[rows[a2]!] || c.gap[rows[a2 + 1]!]) continue
+      if (c.gap[rows[a2]!] || c.gap[rows[a2 + 1]!] || shared[rows[a2]!] || shared[rows[a2 + 1]!]) continue
       const o = base + a2 * 2
       sIdx.push(o, o + 1, o + 2, o + 1, o + 3, o + 2)
     }
@@ -294,11 +313,11 @@ const POINTS: TrackPoint[] = [
   [190, 22, -14, { ...TUBE, pad: 0 }],
   [350, 26, -68, { ...TUBE, items: true }],
   [486, 30, -176, TUBE],
-  [567, 32, -338, { ...TUBE, rail: '' }], // 4: the wreck road leaves here (the tube opens)
+  [567, 32, -338, TUBE], // 4: the wreck road leaves here (the rail opens where it splits)
   // 5: round the galleon
   [513, 28, -513, TUBE],
   [378, 22, -608, { ...TUBE, deck: 'glass' }],
-  [216, 16, -594, { ...TUBE, deck: 'glass', rail: '' }], // 7: the wreck road rejoins
+  [216, 16, -594, { ...TUBE, deck: 'glass' }], // 7: the wreck road rejoins
   // 8: the glass chute down into the trench
   [54, 0, -540, { ...TUBE, deck: 'glass' }],
   [-81, -20, -432, { ...TUBE, deck: 'glass', pad: 0 }],
@@ -307,12 +326,14 @@ const POINTS: TrackPoint[] = [
   [-250, -34, -240, TUBE],
   [-300, -28, -190, { raised: true, gap: true }],
   [-342, -35, -150, { ...TUBE, w: 20 }],
+  // 14: the whirlpool basin: wide open, a vortex across the road
+  [-378, -30, -72, { ...TUBE, w: 30 }],
   [-400, -20, 0, { ...TUBE, items: true }],
-  [-350, 0, 135, { ...TUBE, rail: '' }], // 15: the maintenance tube leaves here
+  [-350, 0, 135, TUBE], // 16: the maintenance tube leaves here
   // 16: through the sunken city and home
   [-216, 12, 230, { ...TUBE, deck: 'glass' }],
   [-81, 20, 230, { ...TUBE, deck: 'glass' }],
-  [-40, 22, 110, { ...TUBE, rail: '' }], // 18: the maintenance tube rejoins
+  [-40, 22, 110, TUBE], // 19: the maintenance tube rejoins
 ]
 
 export const deep: TrackDef = {
@@ -336,6 +357,8 @@ export const deep: TrackDef = {
   points: POINTS,
   // underwater, everything is lighter: jumps float
   gravity: 14,
+  // the tube is ~6 m high: a jump mustn't carry the car up through its glass
+  airCeiling: 4.6,
   branches: [
     {
       // straight through the galleon's broken ribs: shorter, and narrow
@@ -348,10 +371,26 @@ export const deep: TrackDef = {
     },
     {
       // the maintenance tube through the kelp: steel, narrow, boost strips
-      name: 'Maintenance tube', from: 15, to: 18, odds: 0.45,
+      name: 'Maintenance tube', from: 16, to: 19, odds: 0.45,
       points: [
         [-243, 10, 120, { ...TUBE, w: 11, pad: 0 }],
         [-135, 18, 120, { ...TUBE, w: 11 }],
+      ],
+    },
+    {
+      // the high road: a glass deck above the trench, over the broken tube.
+      // Only the vents at its foot throw you up onto it
+      name: 'Vent field', from: 9, to: 13, odds: 0.35,
+      points: [
+        [-96, -21, -416, { raised: true, w: 16, rail: '', deck: 'glass' }],
+        [-108, -21, -402, { raised: true, w: 16, rail: '', deck: 'glass' }],
+        [-116, -21, -393, { raised: true, gap: true }],
+        [-125, -18.5, -384, { raised: true, gap: true }],
+        [-134, -16.5, -375, { ...TUBE, w: 18, deck: 'glass' }],
+        [-172, -17, -334, { ...TUBE, w: 15, deck: 'glass', items: true }],
+        [-234, -18, -306, { ...TUBE, w: 14, deck: 'glass' }],
+        [-292, -22, -242, { ...TUBE, w: 14, deck: 'glass', pad: 0 }],
+        [-330, -30, -190, { ...TUBE, w: 15 }],
       ],
     },
   ],
@@ -493,7 +532,7 @@ export const deep: TrackDef = {
     const m4 = new THREE.Matrix4(), q4 = new THREE.Quaternion(), v3 = new THREE.Vector3(), sc3 = new THREE.Vector3(), fw = new THREE.Vector3(), upV = new THREE.Vector3(0, 1, 0)
     const schools: { im: THREE.InstancedMesh; c: THREE.Vector3; r: number; v: number; o: Float32Array; ph: number; n: number; size: number }[] = []
     const animals: { m: THREE.Mesh; c: THREE.Vector3; r: number; v: number; ph: number; y: number }[] = []
-    const fishMat = (color: number) => new THREE.MeshStandardMaterial({ color, roughness: 0.42, metalness: 0.3 })
+    const fishMat = (color: number, swim: 'fish' | 'manta' | 'whale' = 'fish', rate = 6) => seaMaterial(color, swim, rate)
     const job = (async () => {
       const [f1, f2, f3, shark, manta, whale] = await Promise.all(['Fish1', 'Fish2', 'Fish3', 'Shark', 'Manta_ray', 'Whale'].map(creature))
       const school = (g: THREE.BufferGeometry | null | undefined, color: number, n: number, fr: number, lat: number, y: number, size: number): void => {
@@ -516,7 +555,7 @@ export const deep: TrackDef = {
       const big = (g: THREE.BufferGeometry | null | undefined, color: number, len: number, fr: number, lat: number, y: number, r: number, v: number): void => {
         if (!g) return
         const i = Math.floor(c.count * fr), p = c.samples[i]!, rt = c.rights[i]!
-        const m = new THREE.Mesh(g, fishMat(color))
+        const m = new THREE.Mesh(g, fishMat(color, len > 40 ? 'whale' : g === manta ? 'manta' : 'fish', len > 40 ? 1.2 : 3.5))
         m.scale.setScalar(len)
         root.add(m)
         animals.push({ m, c: new THREE.Vector3(p.x + rt.x * lat, y, p.z + rt.z * lat), r, v, ph: d.rand() * 6.28, y })
@@ -546,6 +585,10 @@ export const deep: TrackDef = {
     }
 
     const col = new THREE.Color()
+    const currents = deepCurrents(k)
+    k.onFrame((f) => currents(f.lap, f.totalLaps, f.time))
+    whirlpool(k)
+    ventField(k, c.branches[2]!)
     k.onFrame((f) => {
       const t = f.time
       jspots.forEach((j, q) => {
@@ -633,4 +676,190 @@ function wreckRibs(k: BuildKit, wreck: Circuit): void {
   const p = wreck.samples[Math.floor(wreck.count / 2)]!, r = wreck.rights[Math.floor(wreck.count / 2)]!
   m.bar(new THREE.Vector3(p.x - r.x * 40, p.y + 14, p.z - r.z * 40), new THREE.Vector3(p.x + r.x * 30, p.y + 4, p.z + r.z * 30), 1.1, 0x2e241a, 10)
   place(k, m, surface('wood', { rough: 0.95 }), false)
+}
+
+/**
+ * The water moves. Currents run across the flooded tubes and push you at the
+ * wall, a cross-current sweeps the break in the tube while you're in the air,
+ * and bubble vents in the trench bounce you up. Harder from lap 2; on the last
+ * lap the currents turn round.
+ */
+function deepCurrents(k: BuildKit): (lap: number, total: number, time: number) => void {
+  const c = k.circuit, P = deep.points
+  const at = (n: number) => c.track(P[n]![0], P[n]![2], 0, c.count, P[n]![1])
+  const stretches = [[1, 3], [8, 10], [15, 17]].map(([a, b]) => roadZones(k, c, at(a!), at(b!), 12))
+  const g = findGap(c, -300, -190)
+  const gapZones = roadZones(k, c, g.i0 - 10, g.i1 + 6, 6, true)
+  const all = [...stretches.flat(), ...gapZones]
+  zoneFx(k, all.map((q) => q.z), 0x8ae8ff, 0.45, 30)
+  // bubble vents along the trench, in the left lane
+  const vents: { z: Zone; fx: THREE.Points }[] = []
+  for (const u of [0.25, 0.5, 0.75]) {
+    const i = Math.round(at(9) + (at(11) - at(9)) * u), p = c.samples[i]!, r = c.rights[i]!, lat = -c.widths[i]! * 0.25
+    const z: Zone = { x: p.x + r.x * lat, z: p.z + r.z * lat, r: 3.4, y0: p.y - 2, y1: p.y + 3, lift: 7.5, on: true }
+    k.world.zones.push(z)
+    const n = 60, pos = new Float32Array(n * 3)
+    const geo = new THREE.BufferGeometry()
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+    const pts = new THREE.Points(geo, new THREE.PointsMaterial({ map: softDot(), color: 0xc8f4ff, size: 0.7, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }))
+    pts.frustumCulled = false
+    pts.userData['base'] = p.y
+    k.root.add(pts)
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(3, 0.25, 6, 24), glow(0.6, 2.6, 3.4))
+    ring.rotation.x = Math.PI / 2
+    ring.position.set(z.x, p.y + 0.15, z.z)
+    k.root.add(ring)
+    vents.push({ z, fx: pts })
+  }
+  return (lap, total, time) => {
+    const last = total > 1 && lap >= total
+    const side = (last ? -1 : 1) * (lap >= 2 ? 6 : 4)
+    for (const q of all) {
+      q.z.on = true
+      q.z.vx = q.rx * side
+      q.z.vz = q.rz * side
+    }
+    for (const v of vents) {
+      const pos = v.fx.geometry.attributes['position']! as THREE.BufferAttribute, base = v.fx.userData['base'] as number
+      for (let i = 0; i < pos.count; i++) {
+        const h = ((time * 6 + i * 0.37) % 10)
+        pos.setXYZ(i, v.z.x + Math.sin(i * 2.1 + time) * 1.6, base + h, v.z.z + Math.cos(i * 1.7 + time) * 1.6)
+      }
+      pos.needsUpdate = true
+    }
+  }
+}
+
+/**
+ * The whirlpool: a vortex turning across the wide basin. On one side of the
+ * road it carries you forward, on the other it drags you back, and its eye
+ * pulls you in and bogs you down. Stronger from lap 2; on the last lap it
+ * turns the other way, so the good side swaps.
+ */
+function whirlpool(k: BuildKit): void {
+  const c = k.circuit, P = deep.points
+  const i = c.track(P[14]![0], P[14]![2], 0, c.count, P[14]![1]), p = c.samples[i]!
+  const R = 22
+  const z: Zone = { x: p.x, z: p.z, r: R, y0: p.y - 3, y1: p.y + 12, swirl: 7, pull: 1.5, air: false, on: true }
+  k.world.zones.push(z)
+  const eye = { x: p.x, z: p.z, r: 4.5, surface: 'mud' as const, on: true }
+  k.world.patches.push(eye)
+  // the vortex: a spiral of sand and bubbles narrowing as it rises, and a dark
+  // swirl on the road where the eye is
+  const n = 900, pos = new Float32Array(n * 3), seed = new Float32Array(n * 2)
+  for (let q = 0; q < n; q++) { seed[q * 2] = Math.random(); seed[q * 2 + 1] = Math.random() }
+  const geo = new THREE.BufferGeometry()
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+  const pts = new THREE.Points(geo, new THREE.PointsMaterial({ map: softDot(), color: 0xbfeaff, size: 0.8, transparent: true, opacity: 0.85, depthWrite: false, blending: THREE.AdditiveBlending }))
+  pts.frustumCulled = false
+  k.root.add(pts)
+  const swirlTex = canvasTexture(256, 256, (g) => {
+    g.translate(128, 128)
+    for (let a = 0; a < 5; a++) {
+      g.rotate((Math.PI * 2) / 5)
+      g.beginPath()
+      for (let t = 0; t < 1; t += 0.02) {
+        const rr = t * 124, th = t * 5
+        g.lineTo(Math.cos(th) * rr, Math.sin(th) * rr)
+      }
+      g.strokeStyle = 'rgba(200,240,255,0.55)'
+      g.lineWidth = 10
+      g.stroke()
+    }
+  })
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(R, 48), new THREE.MeshBasicMaterial({ map: swirlTex, transparent: true, opacity: 0.6, depthWrite: false, blending: THREE.AdditiveBlending, color: 0x8ad8ff }))
+  disc.rotation.x = -Math.PI / 2
+  disc.position.set(p.x, p.y + 0.12, p.z)
+  k.root.add(disc)
+  let spin = 0
+  k.onFrame((f) => {
+    const last = f.totalLaps > 1 && f.lap >= f.totalLaps
+    const power = f.lap >= 2 ? 10 : 7
+    const dir = last ? -1 : 1
+    z.swirl = power * dir
+    z.pull = f.lap >= 2 ? 2.4 : 1.5
+    spin += f.dt * dir * (power / 7) * 1.4
+    disc.rotation.z = spin
+    for (let q = 0; q < n; q++) {
+      const h = (seed[q * 2]! + f.time * 0.18) % 1, rr = 2 + (1 - h) * (R - 2) * (0.5 + seed[q * 2 + 1]! * 0.5)
+      const th = seed[q * 2 + 1]! * Math.PI * 2 + spin * (R / rr) * 0.6
+      pos[q * 3] = p.x + Math.cos(th) * rr
+      pos[q * 3 + 1] = p.y + 0.4 + h * 11
+      pos[q * 3 + 2] = p.z + Math.sin(th) * rr
+    }
+    geo.attributes['position']!.needsUpdate = true
+  })
+}
+
+/**
+ * Sea-creature skin that swims: the body sways side to side in a wave that
+ * grows towards the ends (a manta flaps its wings instead), each fish in a
+ * school on its own beat. Dark on the back, pale underneath, with a faint
+ * sheen of stripes, the way fish are coloured.
+ */
+function seaMaterial(color: number, swim: 'fish' | 'manta' | 'whale', rate: number): THREE.MeshStandardMaterial {
+  const m = new THREE.MeshStandardMaterial({ color, roughness: 0.38, metalness: 0.25 })
+  const kind = swim === 'fish' ? 0 : swim === 'manta' ? 1 : 2
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms['uT'] = windClock
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nuniform float uT;\nvarying vec3 vSea;')
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+        vSea = vec3(position.y, normal.y, position.z);
+        float ph = uT * ${rate.toFixed(2)};
+        #ifdef USE_INSTANCING
+          ph += float(gl_InstanceID) * 1.7;
+        #endif
+        ${kind === 1
+          ? 'transformed.y += sin(ph) * abs(position.x) * abs(position.x) * 0.9;'
+          : `transformed.x += sin(ph + position.z * ${kind === 2 ? '3.0' : '7.0'}) * (0.015 + position.z * position.z * ${kind === 2 ? '0.12' : '0.3'});`}`)
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vSea;')
+      .replace('#include <color_fragment>', `#include <color_fragment>
+        float back = 1.0;
+        diffuseColor.rgb = mix(diffuseColor.rgb * 1.55 + 0.08, diffuseColor.rgb * 0.55, smoothstep(-0.3, 0.6, vSea.y));
+        diffuseColor.rgb *= 0.9 + 0.1 * sin(vSea.z * 60.0);
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.92, 0.95, 0.96), smoothstep(-0.2, -0.8, vSea.y) * 0.5 * back);`)
+  }
+  m.customProgramCacheKey = () => `sea-${kind}-${rate}`
+  return m
+}
+
+/**
+ * The vent field at the foot of the high road: a row of bubble vents across
+ * the lane just before its lip. Drive over one and it throws you up onto the
+ * glass deck above; miss them all and you go off the lip, back down to the
+ * trench road.
+ */
+function ventField(k: BuildKit, high: Circuit): void {
+  let lip = 0
+  while (lip < high.count - 1 && !high.gap[lip + 1]) lip++
+  const vi = Math.max(0, lip - 6), p = high.samples[vi]!, r = high.rights[vi]!, half = high.widths[vi]! / 2
+  const pts: THREE.Vector3[] = []
+  for (const u of [-0.62, -0.2, 0.2, 0.62]) {
+    const lat = u * half
+    const z: Zone = { x: p.x + r.x * lat, z: p.z + r.z * lat, r: 2.4, y0: p.y - 2, y1: p.y + 3, lift: 16, on: true }
+    k.world.zones.push(z)
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(2.2, 0.22, 6, 24), glow(0.6, 2.6, 3.4))
+    ring.rotation.x = Math.PI / 2
+    ring.position.set(z.x, p.y + 0.15, z.z)
+    k.root.add(ring)
+    pts.push(new THREE.Vector3(z.x, p.y, z.z))
+  }
+  // columns of bubbles rising from each vent
+  const n = 50 * pts.length, pos = new Float32Array(n * 3)
+  const geo = new THREE.BufferGeometry()
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+  const bubbles = new THREE.Points(geo, new THREE.PointsMaterial({ map: softDot(), color: 0xc8f4ff, size: 0.7, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }))
+  bubbles.frustumCulled = false
+  k.root.add(bubbles)
+  k.onFrame((f) => {
+    for (let i = 0; i < n; i++) {
+      const v = pts[i % pts.length]!, h = (f.time * 7 + i * 0.37) % 14
+      pos[i * 3] = v.x + Math.sin(i * 2.1 + f.time) * 1.4
+      pos[i * 3 + 1] = v.y + h
+      pos[i * 3 + 2] = v.z + Math.cos(i * 1.7 + f.time) * 1.4
+    }
+    geo.attributes['position']!.needsUpdate = true
+  })
 }

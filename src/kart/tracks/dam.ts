@@ -405,15 +405,18 @@ function buildTown(k: BuildKit): void {
   d.prop('bk:street_lamp_01', lamps, 0, undefined, 400)
   // the river bridge: a steel arch over the roadway
   const arch = new Mesher()
-  const a0 = new THREE.Vector3(-40, 6, 960), a1 = new THREE.Vector3(10, 6.5, 981)
+  // follows the road over the river, standing just outside its edges, with solid feet
+  const i0 = c.track(-40, 960, 0, c.count), i1 = c.track(10, 981, 0, c.count)
+  const lo = Math.min(i0, i1), hi = Math.max(i0, i1)
   for (const s of [-1, 1]) {
-    const dir = a1.clone().sub(a0).normalize(), side = new THREE.Vector3(-dir.z, 0, dir.x).multiplyScalar(s * 10.6)
     let prev: THREE.Vector3 | null = null
     for (let q = 0; q <= 16; q++) {
-      const u = q / 16, p = a0.clone().lerp(a1, u).add(side)
-      p.y += Math.sin(u * Math.PI) * 15 + 0.5
+      const u = q / 16, i = Math.round(lo + (hi - lo) * u), sp = c.samples[i]!, r = c.rights[i]!
+      const off = s * (c.widths[i]! / 2 + 1.6)
+      const p = new THREE.Vector3(sp.x + r.x * off, sp.y + Math.sin(u * Math.PI) * 15 + 0.5, sp.z + r.z * off)
       if (prev) arch.bar(prev, p, 0.45, 0x2f6f8a, 6)
-      if (q > 0 && q < 16 && q % 2 === 0) arch.bar(p, new THREE.Vector3(p.x, a0.y + 0.6, p.z), 0.08, 0x2f6f8a, 4)
+      if (q > 0 && q < 16 && q % 2 === 0) arch.bar(p, new THREE.Vector3(p.x, sp.y + 0.6, p.z), 0.08, 0x2f6f8a, 4)
+      if (q === 0 || q === 16) w.addPost(p.x, p.z, 0.6)
       prev = p
     }
   }

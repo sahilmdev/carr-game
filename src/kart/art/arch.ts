@@ -232,7 +232,8 @@ export function pagodaShape(tiers: number, base: number): { body: Mesher; roof: 
   return { body, roof, lit }
 }
 
-// ── Crowds ──
+// ── Crowds ── (off: the player asked for no spectators anywhere)
+const SHOW_CROWDS = false
 
 let crowdTex: THREE.CanvasTexture | null = null
 function crowdTexture(): THREE.CanvasTexture {
@@ -293,6 +294,7 @@ function crowdMaterial(): THREE.MeshStandardMaterial {
 
 /** Rows of people. `spots` are [x, y, z, yaw]; shirts are their colours. */
 export function crowd(k: BuildKit, spots: [number, number, number, number][], shirts: number[]): void {
+  if (!SHOW_CROWDS) return
   if (!spots.length) return
   const { d } = k
   const g = new THREE.PlaneGeometry(1, 1.5)

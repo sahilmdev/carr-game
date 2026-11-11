@@ -12,6 +12,16 @@ export interface CarInfo {
   model: string
   file?: string
   hq?: boolean
+  /** Its body material, by name: repainted in the chosen colour. Without it the car keeps its own paint (a livery). */
+  paint?: string
+  /** The model is built facing backwards: turn it round. */
+  turn?: boolean
+  /** Paint tints the body's own texture instead of replacing it (one texture for the whole car). */
+  tint?: boolean
+  /** Parts of the downloaded scene that aren't the car (a showroom floor, a fake shadow), by node name. */
+  drop?: string
+  /** Who made the model, for the credits. */
+  credit?: string
   stats: Partial<CarConfig>
   /** 1–5 for the bars on the car screen. */
   bars: { speed: number; accel: number; grip: number; drift: number }
@@ -19,9 +29,13 @@ export interface CarInfo {
 
 export const CARS: CarInfo[] = [
   { id: 'rotor', name: 'Rotor GT', blurb: 'The all-rounder. Nothing to hide behind, nothing to fear.', model: 'carHQ', hq: true, stats: {}, bars: { speed: 3, accel: 3, grip: 3, drift: 3 } },
-  { id: 'stiletto', name: 'Stiletto V12', blurb: 'The fastest car here, and brutal off the line. Heavy to turn.', model: 'carStiletto', file: 'car_aventador.glb', stats: { maxSpeed: 69, acceleration: 34, turnSpeed: 2.35, driftFactor: 0.3 }, bars: { speed: 5, accel: 5, grip: 2, drift: 2 } },
+  { id: 'stiletto', name: 'Stiletto V12', blurb: 'The fastest car here, and brutal off the line. Heavy to turn.', model: 'carStiletto', file: 'car_aventador.glb', hq: true, tint: true, paint: '_Lamborghini_AventadorLamborghini_Aventador_BodySG', stats: { maxSpeed: 69, acceleration: 34, turnSpeed: 2.35, driftFactor: 0.3 }, bars: { speed: 5, accel: 5, grip: 2, drift: 2 } },
   { id: 'aurora', name: 'Aurora', blurb: 'Glued to the road, sharp into every bend.', model: 'carAurora', file: 'car_concept.glb', hq: true, stats: { maxSpeed: 62.5, acceleration: 32, turnSpeed: 2.85, driftFactor: 0.17 }, bars: { speed: 2, accel: 4, grip: 5, drift: 1 } },
-  { id: 'vector', name: 'Vector 88', blurb: 'Loose at the back. Slide it and it flies.', model: 'car', stats: { maxSpeed: 65, acceleration: 28, turnSpeed: 2.75, driftFactor: 0.34 }, bars: { speed: 4, accel: 2, grip: 2, drift: 5 } },
+  { id: 'goblin', name: 'Goblin V12', blurb: 'A green missile. Huge top end, takes a while to get there.', model: 'carGoblin', file: 'cars/goblin.glb', hq: true, paint: 'car_body', drop: 'shadow|clearcoat', credit: '"Fictional supercar - V12 Goblin" by ollitei (CC BY)', stats: { maxSpeed: 70, acceleration: 27, turnSpeed: 2.45, driftFactor: 0.24 }, bars: { speed: 5, accel: 2, grip: 3, drift: 3 } },
+  { id: 'cheetah', name: 'Cheetah', blurb: 'Eighties wedge, all angles. Loose at the back: slide it and it flies.', model: 'carCheetah', file: 'cars/cheetah.glb', hq: true, paint: 'Cheetah_Body', drop: 'shadow', credit: '"Generic Supercar Cheetah" by mk2design (CC BY)', stats: { maxSpeed: 65, acceleration: 29, turnSpeed: 2.75, driftFactor: 0.34 }, bars: { speed: 4, accel: 3, grip: 2, drift: 5 } },
+  { id: 'mohawk', name: 'Mohawk', blurb: 'Big engine, big tyres, big slides. Brutal off the line.', model: 'carMohawk', file: 'cars/mohawk.glb', hq: true, paint: 'Paintjob', turn: true, drop: 'smokewall|plattform|board|scherbe|fan', credit: '"Rayback Mohawk" by Swiss_Fox (CC BY)', stats: { maxSpeed: 64, acceleration: 35, turnSpeed: 2.5, driftFactor: 0.32 }, bars: { speed: 3, accel: 5, grip: 2, drift: 4 } },
+  { id: 'patriot', name: 'Patriot XR', blurb: 'A race car with plates. Stuck to the road, sharp as a knife.', model: 'carPatriot', file: 'cars/patriot.glb', hq: true, paint: 'Paintjob', turn: true, drop: 'board|d2fence|block|klotz|rack', credit: '"Patriot P10-XR" by Swiss_Fox (CC BY)', stats: { maxSpeed: 63.5, acceleration: 31, turnSpeed: 2.95, driftFactor: 0.15 }, bars: { speed: 3, accel: 4, grip: 5, drift: 1 } },
+  { id: 'coupe', name: 'Meridian GT', blurb: 'The grand tourer. Smooth, steady, quick everywhere.', model: 'carCoupe', file: 'cars/coupe.glb', hq: true, turn: true, paint: 'car-body', credit: '"Generic Sport Coupe Car" by mmcworks (CC BY)', stats: { maxSpeed: 66, acceleration: 30, turnSpeed: 2.65, driftFactor: 0.22 }, bars: { speed: 4, accel: 3, grip: 4, drift: 2 } },
 ]
 
 export interface TrackInfo {

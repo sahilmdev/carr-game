@@ -6,7 +6,7 @@ import { mountainRing } from '../art/terrain'
 import type { BuildKit, TrackDef, TrackPoint } from '../types'
 import type { Circuit } from '../Circuit'
 import type { Solid } from '../World'
-import { arrows, crates, drift, gantry, glow, mist, stands } from './parts'
+import { arrows, crates, drift, gantry, glow, mist, roadZones, stands, zoneFx } from './parts'
 
 /*
  * Rainforest Run, as an expedition. Leave the river village on a red-dirt
@@ -112,8 +112,9 @@ export const jungle: TrackDef = {
   road: { lines: 'plain', dirt: 'brown_mud_leaves_01', grime: 0x2c2416, tone: 0xe0b890 },
   terrain: { layers: ['forest_floor', 'brown_mud_leaves_01', 'rock_pitted_mossy', 'grass'], tile: [12, 9, 18, 24], tints: [0xc4d0a4, 0xd4c8a8, 0xb6c8a0, 0x9ab470] },
   look: {
-    tod: 'morning', fog: [0.34, 0.5, 0.4], fogDensity: 0.0034, fogBase: 26, fogFall: 0.016, sunGlow: 1,
-    exposure: 1.02, sun: 1.25, hemi: 0.9, bloom: 0.3, shafts: 0.85, wet: 0.2, grade: [1.1, 1.14, 0, 0.004, 0, 0.98, 1.03, 0.94, 0.36],
+    tod: 'morning', fog: [0.34, 0.5, 0.4], fogDensity: 0.0034, fogBase: 26, fogFall: 0.016, sunGlow: 0.4,
+    // the low sun was glaring straight into the screen: less haze glow, fewer shafts
+    exposure: 1, sun: 1.1, hemi: 0.95, bloom: 0.22, shafts: 0.35, wet: 0.2, grade: [1.1, 1.14, 0, 0.004, 0, 0.98, 1.03, 0.94, 0.36],
   },
   points: POINTS,
   branches: [
@@ -134,6 +135,22 @@ export const jungle: TrackDef = {
         [-345, 23, -62, { w: 13 }],
         [-348, 22, -20, { w: 12 }],
         [-346, 21, 22, { w: 13 }],
+      ],
+    },
+    {
+      // the vine swing: off the bank, grab the vine and swing over the river.
+      // Let go just after the bottom for the fast line; too soon and you're in
+      // the water; hang on and you land safe but slow
+      name: 'Vine swing', from: 4, to: 8, odds: 0.35,
+      points: [
+        [70, 18, -286, { w: 14, pad: 0 }],
+        [40, 19, -300, { w: 14, rail: '' }],
+        [10, 15, -313, { gap: true, w: 14 }],
+        [-15, 13, -324, { gap: true, w: 14 }],
+        [-30, 13, -330.5, { raised: true, w: 22, deck: 'wood', rail: '', bank: 0 }],
+        [-62, 13, -345, { raised: true, w: 20, deck: 'wood', rail: 'LR', bank: 0 }],
+        [-112, 17, -372, { w: 16 }],
+        [-150, 22, -402, { w: 16 }],
       ],
     },
   ],
@@ -204,6 +221,40 @@ export const jungle: TrackDef = {
     for (const [fr, lat, r, lap] of [[0.08, 4, 6, 2], [0.2, -4, 7, 2], [0.36, 3, 6, 2], [0.45, -4, 6, 3], [0.88, 4, 7, 3], [0.95, -3, 7, 2]] as const) puddle(c, fr, lat, r, lap)
     // the ford is always muddy; on the last lap the river is up and it's worse
     for (const [fr, lap] of [[0.3, 1], [0.5, 1], [0.7, 1], [0.4, 3], [0.6, 3]] as const) puddle(ford, fr, 0, 9, lap)
+    // the river runs through the ford: it carries you downstream as you cross,
+    // and on the last lap, with the river up, it is strong
+    const rdx = 100 / Math.hypot(100, 620), rdz = 620 / Math.hypot(100, 620)
+    const flow = roadZones(k, ford, Math.floor(ford.count * 0.22), Math.floor(ford.count * 0.8), 8)
+    zoneFx(k, flow.map((q) => q.z), 0xd8e8e0, 0.35, 34)
+    // ruts in the mud past the ruins: once the rain has softened them they
+    // grab the wheels and drag the car along them, snaking from side to side
+    const P = jungle.points
+    const at = (n: number) => c.track(P[n]![0], P[n]![2], 0, c.count, P[n]![1])
+    const ruts = roadZones(k, c, at(33), at(35), 7)
+    const rutMat = new THREE.MeshStandardMaterial({ color: 0x3a2a18, roughness: 0.3, transparent: true, opacity: 0.75, depthWrite: false })
+    const rutMeshes: THREE.Mesh[] = []
+    ruts.forEach((q, n) => {
+      const off = (n % 2 ? 1 : -1) * 0.2
+      q.z.grab = 1.4
+      q.z.yaw = Math.atan2(-q.fx, -q.fz) + off
+      for (const sd of [-1, 1]) {
+        const m = new THREE.Mesh(new THREE.PlaneGeometry(0.9, q.z.hz! * 2), rutMat)
+        m.rotation.set(-Math.PI / 2, 0, 0)
+        const g = new THREE.Group()
+        g.add(m)
+        g.position.set(q.z.x + q.rx * sd * 3, c.samples[c.track(q.z.x, q.z.z, 0, c.count)]!.y + 0.08, q.z.z + q.rz * sd * 3)
+        g.rotation.y = Math.atan2(q.fx, q.fz) - off
+        g.visible = false
+        root.add(g)
+        rutMeshes.push(g as unknown as THREE.Mesh)
+      }
+    })
+    k.onFrame((f) => {
+      const up = f.totalLaps > 1 && f.lap >= f.totalLaps
+      for (const q of flow) { q.z.on = true; q.z.vx = rdx * (up ? 8 : 4); q.z.vz = rdz * (up ? 8 : 4) }
+      for (const q of ruts) q.z.on = f.lap >= 2
+      for (const m of rutMeshes) m.visible = f.lap >= 2
+    })
     k.onFrame((f) => {
       fall.map!.offset.y = (f.time * 0.9) % 1
       const storm = (f.lap - 1) / Math.max(1, f.totalLaps - 1)
@@ -217,6 +268,7 @@ export const jungle: TrackDef = {
       }
       trap(f.lap >= 2, f.time)
     })
+    vineSwing(k, c.branches[2]!)
   },
 }
 
@@ -407,4 +459,57 @@ function giantTree(k: BuildKit, gx: number, gz: number): void {
   place(k, giant, surface('rock'))
   w.addPost(gx, gz, 24)
   forest(k, 'rainforest', [new THREE.Vector3(gx, gy + 40, gz), new THREE.Vector3(gx - 34, gy + 26, gz + 18), new THREE.Vector3(gx + 30, gy + 30, gz - 20), new THREE.Vector3(gx + 10, gy + 22, gz + 36)], { scale: [2.6, 3.2], solid: 0, tints: [0xdcecc4] })
+}
+
+/**
+ * The vine: hung from a bough of a giant tree leaning over the river. A car
+ * off the lip catches it (see Racer.catchVine); here it's drawn, swaying when
+ * no one's on it and pulled taut to whoever is.
+ */
+function vineSwing(k: BuildKit, swing: Circuit): void {
+  const { world: w, root } = k
+  // the lip: the last road before the gap
+  let lip = 0
+  while (lip < swing.count - 1 && !swing.gap[lip + 1]) lip++
+  const a = swing.samples[lip]!, t = swing.tangents[lip]!
+  const f = new THREE.Vector2(t.x, t.z).normalize()
+  const L = 28, reach = 22
+  const vine = { x: a.x + f.x * reach, z: a.z + f.y * reach, y: a.y + L * Math.cos(Math.asin(reach / L)) + 0.6, L, fx: f.x, fz: f.y, holds: [] as number[] }
+  w.vines.push(vine)
+  // the tree on the far bank, its bough reaching out over the river to the pivot
+  const tx = vine.x + f.x * 40 - f.y * 30, tz = vine.z + f.y * 40 + f.x * 30, ty = w.terrainAt(tx, tz)
+  const tree = new Mesher()
+  tree.post(3.2, 4.6, vine.y + 10 - ty, tx, ty - 2, tz, 0x4a3a2a, 12)
+  const bough = new THREE.Vector3(vine.x, vine.y + 1, vine.z)
+  tree.bar(new THREE.Vector3(tx, vine.y + 6, tz), bough, 1.3, 0x4a3a2a, 8)
+  tree.bar(bough, new THREE.Vector3(vine.x - f.x * 14 + f.y * 6, vine.y + 3, vine.z - f.y * 14 - f.x * 6), 0.8, 0x4a3a2a, 6)
+  for (let q = 0; q < 10; q++) tree.add(new THREE.SphereGeometry(5 + (q % 3) * 1.5, 8, 6), trs(tx + Math.sin(q * 2.3) * 12, vine.y + 12 + (q % 4) * 3, tz + Math.cos(q * 2.3) * 12, 0, 1), [0x2e5a2a, 0x3a6a30, 0x2a4e26][q % 3]!)
+  place(k, tree, surface('wood', { rough: 0.9 }))
+  w.addPost(tx, tz, 4.4)
+  // the vines themselves: one for each rider, and one hanging free
+  const mat = new THREE.MeshStandardMaterial({ color: 0x4a6a2a, roughness: 0.9 })
+  const ropes = Array.from({ length: 7 }, () => { const m = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 1, 5), mat); m.frustumCulled = false; root.add(m); return m })
+  const leaves = new THREE.Mesh(new THREE.SphereGeometry(1.1, 6, 5), new THREE.MeshStandardMaterial({ color: 0x5a8a3a, roughness: 0.9 }))
+  root.add(leaves)
+  const top = new THREE.Vector3(vine.x, vine.y, vine.z), end = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0)
+  const set = (m: THREE.Mesh, to: THREE.Vector3) => {
+    const d = to.clone().sub(top), len = d.length()
+    m.visible = true
+    m.position.copy(top).addScaledVector(d, 0.5)
+    m.scale.set(1, len, 1)
+    m.quaternion.setFromUnitVectors(up, d.divideScalar(len || 1))
+  }
+  k.onFrame((fr) => {
+    // the free vine sways back towards the lip, ready to be caught
+    const th = -Math.asin(reach / L) * (0.82 + Math.sin(fr.time * 1.3) * 0.08)
+    end.set(vine.x + vine.fx * L * Math.sin(th), vine.y - L * Math.cos(th) + 1.4, vine.z + vine.fz * L * Math.sin(th))
+    set(ropes[0]!, end)
+    leaves.position.copy(end)
+    for (let q = 1; q < ropes.length; q++) {
+      const h = vine.holds, j = (q - 1) * 3
+      if (j + 2 < h.length) set(ropes[q]!, end.set(h[j]!, h[j + 1]!, h[j + 2]!))
+      else ropes[q]!.visible = false
+    }
+    vine.holds.length = 0
+  })
 }

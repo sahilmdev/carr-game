@@ -77,6 +77,20 @@ export class PostProcessing {
     this.msaa = !!opts.msaa
     this.composer = new EffectComposer(renderer)
     this.composer.addPass(opts.msaa ? new MsaaScenePass(scene, camera, opts.msaa) : new RenderPass(scene, camera))
+    // One bad pixel (not a number, or past what a half-float holds, as when
+    // many additive glows stack up) would be smeared over the whole screen by
+    // the bloom blur and turn it black for seconds. Clean the image first.
+    this.composer.addPass(new ShaderPass({
+      uniforms: { tDiffuse: { value: null } },
+      vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: `uniform sampler2D tDiffuse; varying vec2 vUv;
+        void main(){
+          vec4 c = texture2D(tDiffuse, vUv);
+          // isnan/isinf: a self-comparison test gets optimised away on some drivers (Intel through ANGLE)
+          if (any(isnan(c)) || any(isinf(c)) || c.r > 6.0e4 || c.g > 6.0e4 || c.b > 6.0e4) c = vec4(0.0, 0.0, 0.0, 1.0);
+          gl_FragColor = vec4(clamp(c.rgb, 0.0, 48.0), clamp(c.a, 0.0, 1.0));
+        }`,
+    }))
 
     this.bloomPass = new UnrealBloomPass(
       new THREE.Vector2(w, h),

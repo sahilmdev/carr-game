@@ -5,7 +5,7 @@ import { Mesher, place, surface } from '../art/arch'
 import type { BuildKit, TrackDef, TrackPoint } from '../types'
 import type { Circuit } from '../Circuit'
 import type { Solid } from '../World'
-import { arrows, crates, gantry, glowStreak, mist, stands } from './parts'
+import { arrows, crates, gantry, glowStreak, mist, stands, wallPanel } from './parts'
 
 /*
  * Neon City, as a night out across town. Down the boulevard and through the
@@ -16,6 +16,7 @@ import { arrows, crates, gantry, glowStreak, mist, stands } from './parts'
  * giant screen (or cut through the back alley, if you don't mind crates) and
  * home up the boulevard.
  *
+ * Traffic drives the city's roads; you weave through it (rush hour from lap 2).
  * Lap 2: trams start running across the plaza and the alley. Last lap: the
  * city blacks out; it's your headlights and the signs.
  */
@@ -98,7 +99,12 @@ export const neon: TrackDef = {
         [686, 35, -345, { raised: true, rail: 'R' }],
         [690, 41, -395, { raised: true, rail: 'LR' }],
         [668, 46, -455, { raised: true, rail: 'LR', items: true }],
-        [668, 46, -540, { raised: true, rail: 'LR' }],
+        // a hole in the upper deck: boost over it, or drop through to the lower deck
+        [668, 46.6, -466, { raised: true, rail: 'LR' }],
+        [668, 48, -478, { raised: true, gap: true }],
+        [668, 47.4, -504, { raised: true, gap: true }],
+        [668, 46, -522, { raised: true, rail: 'LR' }],
+        [668, 46, -545, { raised: true, rail: 'LR' }],
         [690, 40, -600, { raised: true, rail: 'LR' }],
         [680, 35, -652, { raised: true, rail: 'R' }],
       ],
@@ -132,6 +138,12 @@ export const neon: TrackDef = {
     spiralTower(k, blackout)
     const { lit, pools, headMat } = signsAndLamps(k)
     canal(k)
+    // billboards you can ride: one along the boulevard, one over the canal
+    wallPanel(k, c, 30, 68, 1, 5.5, 'OVERDRIVE', 0xff2f8a)
+    {
+      const a0 = c.track(20, -598, 0, c.count, 3), a1 = c.track(-110, -560, 0, c.count, 3)
+      wallPanel(k, c, a0 + 6, a1 - 6, 1, 6, 'NITRO COSMOS', 0x25d9ff)
+    }
     const screen = plaza(k)
     alleyCrates(k, alley)
     const tram = trams(k)
@@ -150,7 +162,10 @@ export const neon: TrackDef = {
     lanes.forEach((_, q) => flyers.setColorAt(q, new THREE.Color(NEON[q % NEON.length]!).multiplyScalar(2.4)))
     root.add(flyers)
     const m4 = new THREE.Matrix4()
+    // the city's own traffic on the road: busy on lap 1, heavier every lap after
+    const cars = traffic(k, 20)
     k.onFrame((f) => {
+      cars(f.lap >= 3 ? 20 : f.lap >= 2 ? 15 : 9, f.dt, f.totalLaps > 1 && f.lap >= f.totalLaps)
       lanes.forEach((l, q) => {
         l.u = (l.u + l.v * f.dt + 1) % 1
         const i = Math.floor(l.u * c.count), p = c.samples[i]!, r = c.rights[i]!, t = c.tangents[i]!
@@ -535,4 +550,148 @@ function trams(k: BuildKit): (on: boolean, t: number, dt: number) => void {
     solid.x = x
     solid.top = STREET + 4
   }
+}
+
+/**
+ * City traffic: cars, vans and taxis driving the road in its outer lanes,
+ * slower than the karts, so you weave through them. Each is a moving solid
+ * rivals see and steer round. `busy` sets how many are out (rush hour on lap 2).
+ */
+export function traffic(k: BuildKit, max: number): (busy: number, dt: number, dark: boolean) => void {
+  const { circuit: c, world: w, root } = k
+  const metre = c.length / c.count
+  // city colours, muted: never confused with a racer's paint
+  const colors = [0x8a8f98, 0x3a3f4a, 0xe8e6e0, 0x5a2a2a, 0x2a3a5a, 0x6a6a5a, 0x1c1e22]
+  const lights: THREE.MeshBasicMaterial[] = []
+  // a mix that reads as traffic at a glance: taxis, buses, box trucks, vans, saloons
+  const KINDS: CityKind[] = ['taxi', 'saloon', 'bus', 'van', 'saloon', 'truck', 'taxi', 'saloon', 'van', 'bus']
+  const cars = Array.from({ length: max }, (_, q) => {
+    const kind = KINDS[q % KINDS.length]!
+    const L = kind === 'bus' ? 11 : kind === 'truck' ? 8 : kind === 'van' ? 6.2 : 4.8
+    const { paint, glass, trim, glow } = cityVehicle(kind, L, kind === 'taxi' ? 0xf2c230 : kind === 'bus' ? [0xd8442a, 0x2a7ad8, 0xe8e6e0][q % 3]! : colors[q % colors.length]!)
+    const g = new THREE.Group()
+    const body = new THREE.Mesh(paint.build(), surface('paint', { rough: 0.32, metal: 0.4 }))
+    body.castShadow = true
+    g.add(body)
+    g.add(new THREE.Mesh(glass.build(), new THREE.MeshStandardMaterial({ color: 0x0c1220, roughness: 0.05, metalness: 0.9, envMapIntensity: 1.6 })))
+    g.add(new THREE.Mesh(trim.build(), surface('metal', { rough: 0.5, metal: 0.6 })))
+    if (!glow.empty) g.add(new THREE.Mesh(glow.build(), new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false })))
+    const tail = new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 0.2, 0.15), toneMapped: false })
+    const head = new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 2.8, 2.2), toneMapped: false })
+    lights.push(head)
+    const W = kind === 'bus' || kind === 'truck' ? 2.5 : 2.2
+    for (const sd of [-1, 1]) {
+      const tl = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.22, 0.1), tail); tl.position.set(sd * (W / 2 - 0.35), 1, L / 2 + 0.05); g.add(tl)
+      const hl = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.22, 0.1), head); hl.position.set(sd * (W / 2 - 0.35), 0.85, -L / 2 - 0.05); g.add(hl)
+    }
+    g.visible = false
+    root.add(g)
+    const solid: Solid = { x: 1e6, z: 1e6, r: L / 2 + 1.5, hx: W / 2 + 0.1, hz: L / 2, cos: 1, sin: 0, top: -1e6 }
+    w.movers.push(solid)
+    const slow = kind === 'bus' || kind === 'truck'
+    // two lanes each side: the outer one for buses and trucks, the inner for cars
+    const lane = (q % 2 ? 1 : -1) * (slow ? 0 : 1)
+    return { g, solid, s: (q / max) * c.count, v: (slow ? 15 : 20) + (q % 5) * 2, lane, side: q % 2 ? 1 : -1 }
+  })
+  return (busy, dt, dark) => {
+    for (const l of lights) l.color.setRGB(dark ? 5 : 3, dark ? 4.6 : 2.8, dark ? 3.6 : 2.2)
+    cars.forEach((car, q) => {
+      const on = q < busy
+      car.g.visible = on
+      if (!on) { car.solid.top = -1e6; return }
+      car.s = (car.s + (car.v * dt) / metre) % c.count
+      let i = Math.floor(car.s)
+      // never on a jump: skip straight past a gap
+      if (c.gap[i]) { while (c.gap[i % c.count]) i++; car.s = i % c.count }
+      i = i % c.count
+      const p = c.samples[i]!, r = c.rights[i]!, t = c.tangents[i]!
+      const half = c.widths[i]! / 2
+      const lat = car.side * Math.max(1.8, car.lane !== 0 ? half - 5.6 : half - 2.6)
+      car.g.position.set(p.x + r.x * lat, p.y, p.z + r.z * lat)
+      const yaw = Math.atan2(-t.x, -t.z)
+      car.g.rotation.y = yaw
+      car.solid.x = car.g.position.x
+      car.solid.z = car.g.position.z
+      car.solid.cos = Math.cos(yaw)
+      car.solid.sin = Math.sin(yaw)
+      car.solid.top = p.y + ((car.solid.hz ?? 0) > 4 ? 3.4 : 2.4)
+    })
+  }
+}
+
+type CityKind = 'saloon' | 'taxi' | 'van' | 'truck' | 'bus'
+
+/**
+ * A city vehicle, front at -z: a saloon or taxi with a rounded profile, a
+ * van, a box truck or a bus with a lit destination board. Paint, dark glass,
+ * trim (tyres, rims, bumpers, mirrors) and glow (signs, beacons).
+ */
+function cityVehicle(kind: CityKind, L: number, color: number): { paint: Mesher; glass: Mesher; trim: Mesher; glow: Mesher } {
+  const glow = new Mesher()
+  if (kind === 'saloon' || kind === 'taxi' || kind === 'van') {
+    const { paint, glass, trim } = cityCar(kind === 'van', L, color, kind === 'taxi')
+    const W = 2.2
+    // mirrors and a chrome line along the waist
+    for (const sd of [-1, 1]) {
+      trim.box(0.22, 0.14, 0.3, sd * (W / 2 + 0.2), 1.12, -L * 0.14, 0x1a1a1e)
+      trim.box(0.04, 0.05, L * 0.8, sd * (W / 2 + 0.11), 0.98, 0, 0xc8ccd4)
+    }
+    if (kind === 'taxi') glow.box(0.86, 0.24, 0.36, 0, 1.84, -L * 0.1, 0xfff0a0)
+    return { paint, glass, trim, glow }
+  }
+  const paint = new Mesher(), glass = new Mesher(), trim = new Mesher()
+  const W = 2.5, h = L / 2
+  if (kind === 'bus') {
+    paint.box(W, 2.7, L, 0, 0.45 + 1.35, 0, color)
+    paint.box(W - 0.1, 0.2, L - 0.4, 0, 3.25, 0, 0xe8e8ea)
+    // a band of windows down each side, and a big screen
+    for (const sd of [-1, 1]) glass.box(0.05, 1.0, L - 2.2, sd * (W / 2 + 0.01), 2.25, 0.5, 0)
+    glass.box(W - 0.3, 1.3, 0.05, 0, 2.1, -h - 0.02, 0)
+    glow.box(W - 0.6, 0.32, 0.06, 0, 2.95, -h - 0.05, 0xffa030)
+  } else {
+    // box truck: a cab and a tall cargo box
+    paint.box(W, 2.0, 2.4, 0, 1.45, -h + 1.2, color)
+    paint.box(W + 0.1, 3.0, L - 2.6, 0, 2.0, 1.3, 0xd8d8d4)
+    glass.box(W - 0.3, 0.8, 0.05, 0, 1.95, -h - 0.02, 0)
+    for (const sd of [-1, 1]) glass.box(0.05, 0.6, 1.1, sd * (W / 2 + 0.01), 1.95, -h + 1.1, 0)
+    glow.box(1.2, 0.14, 0.3, 0, 2.5, -h + 1.4, 0xff9a20)
+  }
+  for (const z of [-h + 1.3, h - 1.6]) for (const sd of [-1, 1]) {
+    trim.add(new THREE.CylinderGeometry(0.5, 0.5, 0.34, 14), trs(sd * (W / 2 - 0.1), 0.5, z, 0, 1, 0, Math.PI / 2), 0x121214)
+    trim.add(new THREE.CylinderGeometry(0.28, 0.28, 0.36, 10), trs(sd * (W / 2 - 0.08), 0.5, z, 0, 1, 0, Math.PI / 2), 0xb8bcc4)
+  }
+  for (const z of [-h - 0.06, h + 0.06]) trim.box(W + 0.12, 0.3, 0.2, 0, 0.55, z, 0x1a1a1e)
+  return { paint, glass, trim, glow }
+}
+
+/**
+ * A city car's body from its side profile: bonnet, cabin and boot for a car,
+ * a tall box with a sloped nose for a van. Front at -z. Paint, dark glass
+ * (side windows, screens) and trim (tyres, rims, bumpers, a taxi sign).
+ */
+function cityCar(van: boolean, L: number, color: number, taxi: boolean): { paint: Mesher; glass: Mesher; trim: Mesher } {
+  const paint = new Mesher(), glass = new Mesher(), trim = new Mesher()
+  const W = 2.2, h = L / 2
+  const pts: [number, number][] = van
+    ? [[h, 0.38], [h, 1.25], [h - 0.7, 2.35], [h - 1.1, 2.5], [-h, 2.5], [-h, 0.38]]
+    : [[h, 0.38], [h, 0.86], [h - 0.2, 1.0], [L * 0.2, 1.1], [L * 0.04, 1.66], [-L * 0.24, 1.66], [-L * 0.37, 1.12], [-h + 0.12, 1.06], [-h, 0.84], [-h, 0.38]]
+  const shape = new THREE.Shape(pts.map(([x, y]) => new THREE.Vector2(x, y)))
+  const ext = new THREE.ExtrudeGeometry(shape, { depth: W, bevelEnabled: true, bevelThickness: 0.08, bevelSize: 0.08, bevelSegments: 2, curveSegments: 4 })
+  paint.add(ext, new THREE.Matrix4().makeRotationY(Math.PI / 2).premultiply(new THREE.Matrix4().makeTranslation(-W / 2, 0, 0)), color)
+  if (van) {
+    for (const sd of [-1, 1]) glass.box(0.04, 0.6, 1.2, sd * (W / 2 + 0.1), 1.95, -h + 1.3, 0)
+    glass.add(new THREE.BoxGeometry(W - 0.2, 0.9, 0.05), trs(0, 1.8, -h + 0.38, 0, 1, 0.57), 0)
+  } else {
+    for (const sd of [-1, 1]) glass.box(0.04, 0.42, L * 0.5, sd * (W / 2 + 0.1), 1.36, -L * 0.1, 0)
+    glass.add(new THREE.BoxGeometry(W - 0.25, 0.7, 0.05), trs(0, 1.38, -L * 0.12, 0, 1, 0.92), 0)
+    glass.add(new THREE.BoxGeometry(W - 0.25, 0.6, 0.05), trs(0, 1.38, L * 0.305, 0, 1, -1.0), 0)
+  }
+  for (const z of [-h + 0.85, h - 0.85]) for (const sd of [-1, 1]) {
+    trim.add(new THREE.CylinderGeometry(0.42, 0.42, 0.3, 14), trs(sd * (W / 2 - 0.05), 0.42, z, 0, 1, 0, Math.PI / 2), 0x121214)
+    trim.add(new THREE.CylinderGeometry(0.24, 0.24, 0.32, 10), trs(sd * (W / 2 - 0.03), 0.42, z, 0, 1, 0, Math.PI / 2), 0xb8bcc4)
+  }
+  for (const z of [-h - 0.06, h + 0.06]) trim.box(W + 0.12, 0.26, 0.2, 0, 0.5, z, 0x1a1a1e)
+  trim.box(W + 0.1, 0.12, L - 1.8, 0, 0.42, 0, 0x1a1a1e)
+  if (taxi) trim.box(0.9, 0.28, 0.4, 0, 1.82, -L * 0.1, 0xf8f4e0)
+  return { paint, glass, trim }
 }

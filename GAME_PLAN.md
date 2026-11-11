@@ -89,8 +89,6 @@ Shared by every track, in `src/kart/art`. New tracks should build from these, no
 
 ## Status
 - All four cups are built: 15 kart tracks in `src/kart/tracks`, plus the Grand Tour as the Supernova Cup finale.
-- Eclipse Cup: Midnight Carnival (coaster road, fireworks and dodgems from lap 2), The Great Dam (gates open on lap 2 and flood the basin road), Skyline Cranes (rooftop jumps, crane loads swing across the road from lap 2), Mars Colony (low gravity, crater jumps, a dust storm that thickens each lap).
-- Supernova Cup: Hollow Manor (through the great hall and off the roof; storm on lap 2, ghosts on the last), Ghost Galleon Bay (along the decks of two wrecks; the tide rises, a phantom ship fires on the last lap), Solar Crown (a road over a star; an eruption on lap 2, plasma columns on the last), then the Grand Tour.
 - The Grand Tour round runs in its own page: the cup is saved in session storage, and the tour's medal comes back as your place (gold 1st, silver 2nd, bronze 3rd, none 6th); the rivals fill the other places by standing.
 - Tracks can set `gravity` (Mars uses 13 against the usual 26).
 - Dev-only test helpers live in `src/kart/devtools.ts` (`__look`, `__race`, `__clear`, `__fly`, `__gaps`); they are not in the production build.
@@ -101,11 +99,88 @@ Shared by every track, in `src/kart/art`. New tracks should build from these, no
   - Rainforest Run (2.9 km): river village, rope bridge or the muddy ford, a ledge behind the waterfall, switchbacks up the cliff, a walkway through the tree crowns, a glide down to the temple, round it or through its tunnel. Lap 2 rain, mud and a sliding stone trap in the tunnel; last lap the river is up.
   - Blossom Pass (3 km): lakeside village, a corridor of red gates, hairpins to the summit temple and round the pagoda either way, then the sweeping descent or the ridge road with a boost-only ravine jump, the red bridge by the falls. Lap 2 wind, petals and lanterns; last lap valley mist.
   - Neon City (3.15 km): boulevard, neon market hall, a spiral ramp round a tower up to the expressway, the double-decker (covered lower deck or open upper deck), a jump over a missing span, the canal, then the plaza or the crate-filled alley. Lap 2 trams; last lap blackout.
+- The Nova Cup is rebuilt to the same standard (2026-11-08):
+  - Deep Blue (2.8 km, underwater gravity so jumps float): out of the station dome, round the galleon or through its ribs, a glass chute into the trench and a jump over a broken section of tube, then the sunken city or the maintenance tube in the kelp. Lap 2 leaks on the deck; last lap red emergency light.
+  - Gold Rush Line (2.6 km): main street beside the railway, two level crossings with the train, over the mesa or through the mine under it (ore carts cross from lap 2), a jump over the broken trestle, and a canyon short cut the dynamite opens on lap 2. Last lap the train runs faster.
+  - Bobsleigh Peak (3.3 km, ground now built to follow the route instead of a deep trench): summit village, ski-jump in-run and a glide down the landing hill, the ice chute or the forest trail with its creek jump, round the frozen lake or across the ice, then the rack railway back up. Lap 2 snowballs; last lap blizzard and cracking ice.
+  - Sky Islands (3.2 km): island leaps, the glass highway, the glass bridge or the deck along a moored airship, a glide off the summit island. Lap 2 crosswind; last lap a gale and drifting rocks.
+- The Eclipse Cup is rebuilt to the same standard (2026-11-09):
+  - Midnight Carnival (3.2 km): down the midway and through the neon fun house, up the coaster's lift hill, the drop and camelback, a boosted launch over the flume pond or the log-flume channel, through the middle of the big top and past the carousel. Lap 2 fireworks and dodgems on the plaza; last lap a coaster car runs the track with you.
+  - Skyline Cranes (3.1 km, every metre on the roofs): podium-roof start, down to the low roofs, a boosted leap across the avenue or round by the service bridge, ramps up to the high roofs, a drop across the gap to the next block, the climb to the summit tower and a glide off it, or the scaffolding on the half-built block. Lap 2 crane loads hang across one lane; last lap gusts on the roofs.
+  - Mars Colony (3.2 km, low gravity): out to the crater, a leap in and a launch out (or the rim road), a long floaty leap over the rift, the climb up the mesa and a glide off its edge (or the lava tube through it), home through the big dome. Lap 2 dust storm and dunes drifting over the road; last lap the rocket launches.
+- The Supernova Cup is rebuilt to the same standard (2026-11-09):
+  - Hollow Manor (2.9 km): the long drive, the great-hall ramp and the jump off the wing roof into the graveyard, the chapel bluff or the hedge maze, a boosted leap over the boathouse inlet or round on the boardwalk, the lake shore home. Lap 2 storm; last lap ghosts.
+  - Ghost Galleon Bay (3.2 km): the quay and the town, the lighthouse headland and a glide off the cliff to the piers (or the rope bridge across the cove), the wreck's deck and the bow jump, a leap off the broken pier to the islet (a pad or a trick off the bow jump carries you), the sea cave, the causeway, the west hills or the smugglers' tunnel. Lap 2 tide; last lap the phantom galleon.
+  - Solar Crown (3.1 km), new look: a white and blue orbital station over a banded gas giant, the sun a bright disc in a dark, starry sky, nebula, asteroids, solar wings, a crown ring with spires. A boosted leap between modules, a glide off the crown's highest spire (or the solar array), a jump between docking arms (or the glass maintenance tube). Lap 2 solar flare and solar wind; last lap debris across one lane.
+- Rails now open by themselves only where another road actually runs alongside (a fork or a join), so no point needs `rail: ''` at a junction any more, and nothing opens before the branch has split off.
+- Track upgrades follow the blueprints in `bps/` (one PDF per track): each track gets one core mechanic. Shared engine pieces come first, each proven on one track.
+- Engine piece 1, moving road (2026-11-09): `World.platforms` are moving decks a car can drive on (sloped tops allowed, so they can be ramps). A car on one is carried along; its speed is measured against the deck while on it, and it keeps the deck's speed when it leaves, through the air until it lands. Rivals treat a deck as road, line up on it and ride it.
+- Gold Rush Line proof (3.26 km, laps about 50-65 s): a Railway branch runs along the track bed. The train is a car-carrier rake (ramp wagon, flat cars, a kicker at the front) that paces itself to meet the player on that stretch; catch it, drive up, run along the wagons and launch off the kicker over the engine at about 95 m/s. The wagons are only drivable on that stretch; everywhere else the train is a wall. A loop round the south of town was added for length.
+- Moving road on four more tracks (2026-11-09), using `movingDeck` and `findGap` in `tracks/parts.ts` (a deck laid over a gap in the road):
+  - Cosmos Bay: a two-leaf drawbridge over the harbour mouth lifts on a cycle (flat, then a ramp you jump the split from, higher from lap 2, faster on the last lap).
+  - Skyline Cranes: a crane in the street swings its jib into line across the rooftop gap; in line you drive over it, swung away you jump.
+  - Sky Islands: the airship deck is no longer fixed; it drifts along its length and rises and sinks under you, more from lap 2.
+  - Bobsleigh Peak: the ice road crosses an open lead on drifting floes, which drift further on the last lap.
+- Engine piece 2, force zones (2026-11-09): `World.zones` push (currents, gusts), swirl and pull (dust devils, blasts), steer (`grab`, mud ruts) or throw up (`lift`, vents). `roadZones` and `zoneFx` in `tracks/parts.ts` lay zones along a road and show them as drifting specks.
+  - Deep Blue: sideways currents through the flooded tubes (stronger from lap 2, reversed on the last lap), a cross-current over the broken tube, bubble vents in the trench.
+  - Rainforest Run: the river carries you downstream across the ford (strong on the last lap); mud ruts past the ruins drag the car from lap 2.
+  - Mars Colony: dust devils sweep back and forth across the road from lap 2 and swirl you; the rocket's blast shoves you on the last lap.
+  - Ghost Galleon Bay: waves break across the causeway every few seconds and push you sideways, bigger with the tide.
+- Clean-up pass on the nine upgraded tracks (2026-11-09) with a new dev scanner, `__clutter(id)`, which lists anything visible sitting on a road. Fixed: mine timbers over the Gold Rush main road, rooftop parapets across the Cranes forks, Deep Blue tubes standing across the other road at forks. Engine: a branch now takes the main road's height where they overlap and eases away, so forks have no ledges (ends near a jump are left alone).
+- Engine pieces 3-6 (2026-11-09):
+  - Locked-on rails (`lock: true` points): no steering, you lean into bends; lean wrong in a hard bend and you're thrown and lose speed. `railTrack` draws the rails. Used on the Carnival coaster (lift hill, drop, camelback) and the Gold Rush mine carts.
+  - Vertical loops (`loops` on a track): you ride round the hoop; gravity takes speed off and too slow at the top drops you out. `loopTracks` draws them. Carnival has one at the bottom of the coaster drop, Solar Crown two.
+  - Routes that change during a race: Hollow Manor's ground-floor Gallery, whose doors slam shut on a cycle (rivals only go in when the doors will still be open); Cosmos Bay's beach road, dry and quick on lap 1, wet from lap 2, under water and closed on the last lap.
+  - Traffic: Neon City has cars, vans and taxis in the outer lanes (5 on lap 1, 10 at rush hour).
+  - Drift chains: drifts released one after another pay more each time (strongest on Blossom Pass, `driftChain: 0.4`). Only the player's car earns drift boosts, so rivals don't use it.
+  - Updrafts (`rise` zones) lift gliding cars: Sky Islands has them under the summit glide.
+  - Bobsleigh Peak's chute has curved ice walls, higher on the outside of bends, and riding the outside wall through a bend slings you on.
+  - Ghost Galleon Bay: on the wreck decks you slide with the ships' roll, harder from lap 2.
+- Physics fixes: a car coming down beside a cliff hits it as a wall instead of snapping up onto it (cars used to hop up mesas); cars come out of a loop on the road.
+- Blueprint pieces finished (2026-11-10):
+  - Mars Colony: the crater is a steep banked bowl round its east wall; riding high on the outside pushes you on to the launch.
+  - Deep Blue: a whirlpool basin after the tube break. One side carries you forward, the other drags you back, the eye bogs you down; stronger from lap 2, reversed on the last lap.
+  - Skyline Cranes: a crane-lift fork. A hoisted deck ramps from the low roof to the high one on a cycle, with a lamp, and a boom gate that holds you until there's time to cross.
+  - Hollow Manor: the cellar route under the hall, boarded until lap 2, when the floor gives way.
+  - Blossom Pass: the descent is a stack of six hairpins; the climb was straightened to keep laps near a minute.
+  - Rainforest Run: a vine-swing fork beside the rope bridge (World.vines, Racer.catchVine/stepSwing). Let go with nitro or brake just after the bottom for the fast line; too soon and you're in the river; hang on and it lets go at the top.
+  - Neon City: a hole in the upper deck (boost over it or drop to the lower deck), and two billboards you can ride sideways (World.wallRides, Racer.catchWall/stepWall, parts.wallPanel).
+  - Ghost Galleon Bay: the hulls, masts and sails visibly roll with the deck push.
+- Engine and rival fixes in the same round:
+  - Rivals only take a boost-only shortcut with nitro in hand.
+  - A rival waiting at a gate isn't rescued as stuck.
+  - Circuit.shut keeps cars off (and out of rescues onto) a closed road.
+  - Solar Crown's habitat leap shortened so the pads clear it.
+- Polish: forks and shortcuts drawn on the minimap; shaped city cars in Neon traffic; a more detailed steam engine; mist fades as you reach it; Mars has single-sided small domes, less mist and less dome grass.
+- Round of 2026-11-11:
+  - Half-pipe road (`pipe` point option): the road curves up into walls; gravity pulls you back down and a swoop off a high wall gives a burst. Used on the Mars canyon run.
+  - Twisting road (`roll` point option): the road turns over about its length and the car sticks to it upside down, steering as normal; too slow at the top and you drop off. A corkscrew on Solar Crown. (Racer.startTwist/stepTwist, Circuit.at.)
+  - Touch controls in kart races, with an item button that glows when an item is ready.
+  - Replays: every race is recorded; "Watch replay" on the results screen plays it back with changing camera angles. Items and moving scenery aren't re-synced in the replay.
+  - Vector 88 is a hand-built model (art/heroCar.ts).
+  - Deep Blue sea creatures were invisible (the loader collapsed the skinned meshes); fixed. They now swim, with a dark back and pale belly.
+- Round of 2026-11-11 (2):
+  - Rescue drone: puts you down rolling and only a short run-up before a jump, never on a twist or over a gap, and the flight is quicker (2.2 s).
+  - Black screen: Sky Islands' updraft specks had NaN positions (round zones have no turn); fixed. The broken-pixel filter uses isnan/isinf (a self-compare is optimised away on Intel through ANGLE); dynamic resolution changes at most every 6 s and only after two slow readings; guards against a broken camera or car position.
+  - Road clean-up for track-built geometry (tidy.carveRoads): anything in the lanes at car height is cut, with any fixed solid there. Gold Rush buildings on the canyon rims (floating over the road) are gone.
+  - Rivals: a mistake over an open drop is a wobble to the edge, and they hold the middle of narrow decks with an open side.
+  - Blossom drift gate: link five drifts down the hairpins and the gate at the fifth opens on a cut past the last one; lanterns show your chain.
+  - Hollow Manor: hedges close one half of the maze at two places; the layout changes every lap.
+  - Deep Blue vent field: vents at the foot of a high glass deck throw you up onto it, over the broken tube.
+  - Midnight Carnival bumper arena: a route across the dodgem rink; bumper cars and padded walls knock you aside (Solid.bounce). The dodgems no longer come out onto the plaza road.
+  - Replays now include whatever moves in the scene (trains, lifts, doors, bumper cars, item shots), found by watching the scene during the race.
+  - Vector 88 rebuilt with a smooth lofted body and canopy.
+- Still open: Mars performance trimmed but not measured on the target laptop.
+- Fixes from playtest (2026-11-09):
+  - Black flashing screen: a single bad pixel (not a number, or over the half-float limit when many additive glows stack) was smeared over the whole frame by the bloom blur. A cleaning pass right after the scene render (`engine/PostProcessing.ts`) now removes such pixels. Measured: Sky, Mars, Deep and Solar went from up to 54 fully black frames per race to none.
+  - Props on or beside roads: `kart/tidy.ts` runs after every track loads. Scattered props (trees, rocks, lamps, crates) standing on a road are removed; tall ones within a few metres of a road edge get a solid post sized so it never reaches onto the road. Anything with `userData.keep` (items) is left alone.
+  - The Dam's river-bridge arch now follows the road and stands outside its edges, with solid feet.
+  - Dev tools: `__dark(id)` races with items and watches for black frames; `__ghosts(id)` lists props you could drive through.
+- New engine option: `tunnel` points run inside a hill (no carving, no supports; the track builds the bore).
 - Engine fixes found while building them: cars keep their speed in the air (no braking or drag mid-jump); mud lying on the road now slows you; stacked roads (a road passing over itself) pick the higher deck; steep hillsides block cars like walls; terrain never pokes through raised roads or into jump paths; rivals hold their fork choice until clear of the fork, keep to the middle through it, brake for real bends before jumps, and skip a shortcut they just fell off.
 
 ## Next
-1. Playtest the Comet Cup and The Great Dam: length, forks, jumps, items, tricks.
-2. Rebuild the remaining 11 tracks (Nova, Eclipse, Supernova) to that standard, one design sheet each first (Skyline Cranes on rooftops only; Gold Rush with mine carts and a rail-or-dirt fork; Midnight Carnival through the rides; Solar Crown needs a visual rethink).
-3. Hero models (cars, the Gold Rush train, sea life) are still the weakest art; there is no CC0 source for them, so they need Sketchfab CC-BY files you download yourself.
-4. Mars Colony is the heaviest track to draw; trim it further if it stutters.
-5. Later: wall-ride and half-pipe sections, a touch button for items, branches on the minimap, full replay.
+1. Playtest all four cups: length, forks, jumps, items, tricks.
+2. Hero models (cars, the Gold Rush train, sea life) are still the weakest art; there is no CC0 source for them, so they need Sketchfab CC-BY files you download yourself.
+3. Mars Colony is the heaviest track to draw; trim it further if it stutters.
+4. Later: half-pipe sections, a touch button for items, full replay.

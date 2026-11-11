@@ -90,3 +90,8 @@ tree_stump_01, utility_box_01, utility_box_02, water_manhole_cover, wild_rooibos
 | File | Used for | Source | License |
 |------|----------|--------|---------|
 | `car_concept.glb` | Aurora (selectable car): "Car Concept" model | [KhronosGroup/glTF-Sample-Assets](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/CarConcept) | CC-BY 4.0 (credit required; excludes Khronos logos and trademarks) |
+| `cars/goblin.glb` | Goblin V12 | ["Fictional supercar - V12 Goblin" by ollitei](https://sketchfab.com/3d-models/0a20e49ad5774d778567cb5c3f345786) | CC-BY 4.0. Textures resized, materials converted to metal/rough, shadow plane and clearcoat shell removed in game |
+| `cars/cheetah.glb` | Cheetah | ["Generic Supercar "Cheetah"" by mk2design](https://sketchfab.com/3d-models/f5420af7b30c4e8c874be33cc58724f2) | CC-BY 4.0. Textures resized; shadow plane removed in game |
+| `cars/mohawk.glb` | Mohawk | ["Rayback Mohawk" by Swiss_Fox](https://sketchfab.com/3d-models/2c5ea0d5f73246549c0b9b68f53627e9) | CC-BY 4.0. Textures resized; showroom props removed in game |
+| `cars/patriot.glb` | Patriot XR | ["Patriot P10-XR" by Swiss_Fox](https://sketchfab.com/3d-models/d87ddc3e30134ff2990d8ee4d2586bdd) | CC-BY 4.0. Textures resized; showroom props removed in game |
+| `cars/coupe.glb` | Meridian GT | ["Generic Sport Coupé Car" by mmcworks](https://sketchfab.com/3d-models/820a13c4831c41959ce75e6c2014e882) | CC-BY 4.0. Textures resized |

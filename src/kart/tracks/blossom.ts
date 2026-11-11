@@ -6,13 +6,14 @@ import { forest, grass } from '../art/foliage'
 import { mountainRing } from '../art/terrain'
 import type { BuildKit, TrackDef, TrackPoint } from '../types'
 import type { Circuit } from '../Circuit'
+import type { Solid } from '../World'
 import { arrows, crates, drift, gantry, glow, mist, stands } from './parts'
 
 /*
  * Blossom Pass, as a pilgrimage up the mountain at sunset. Leave the lakeside
  * village, climb through a long corridor of red gates, drift up the hairpins
  * through the cherry trees to the temple on the summit and round its pagoda,
- * left or right. On the way down, take the long sweeping bends, or the ridge
+ * left or right. On the way down, drift the stack of six hairpins, or the ridge
  * road and its jump over the ravine (only a boost clears it). Then across the
  * gorge on the red arched bridge beside the falls, and down to the lake.
  *
@@ -50,24 +51,35 @@ const POINTS: TrackPoint[] = [
   [-264, 20.8, -79],
   [-238, 30.6, -198],
   [-158, 40.4, -284],
-  // 7: hairpins up through the cherry trees
-  [-53, 48.6, -317],
-  [53, 55.2, -290, { items: true }],
-  [145, 60.1, -330, { bank: 4, w: 20 }],
-  [92, 66.7, -396],
-  [-13, 73.2, -422, { bank: 4, w: 20 }],
-  [-40, 79.8, -502],
-  [40, 86.4, -568], // 13: the courtyard's north path leaves here
-  // 14: the temple courtyard, south of the pagoda
+  // 7: the climb through the cherry trees, sweeping up to the summit
+  [-92, 52, -364, { items: true }],
+  [-40, 72, -476, { bank: 4, w: 19 }],
+  [40, 86.4, -568], // 9: the courtyard's north path leaves here
+  // 10: the temple courtyard, south of the pagoda
   [132, 91.3, -581, { items: true }],
-  [211, 92.9, -541], // 15: the north path rejoins
-  [264, 89.6, -475], // 16: the ridge road leaves here
-  // 17: the long sweeping descent
-  [317, 79.8, -396],
-  [264, 70, -330, { bank: 4 }],
-  [198, 60.1, -264],
-  [264, 50.3, -198],
-  [356, 42.1, -158, { pad: 0 }], // 21: the ridge road rejoins
+  [211, 92.9, -541], // 11: the north path rejoins
+  [264, 89.6, -475], // 12: the ridge road leaves here
+  // 13: the hairpin stack: six hairpins stacked down the mountain, a drift
+  // in each, linked into one chain if you get them right
+  [306, 86, -452, { w: 19 }],
+  [286, 83.5, -428],
+  [250, 81, -428],
+  [230, 78.5, -408, { w: 19 }],
+  [250, 76, -388, { items: true }],
+  [286, 73.5, -388],
+  [308, 71, -368, { w: 19 }],
+  [286, 68.5, -348],
+  [250, 66, -348],
+  [230, 63.5, -328, { w: 19 }],
+  [250, 61, -308],
+  [286, 58.5, -308],
+  [308, 56, -288, { w: 19 }],
+  [286, 53.5, -268],
+  [250, 51, -268],
+  [230, 48.5, -248, { w: 19 }],
+  [250, 46, -228],
+  [310, 44, -200, { pad: 0 }],
+  [356, 42.1, -158, { pad: 0 }], // 31: the ridge road rejoins
   // 22: the red bridge over the gorge, and down to the lake
   [436, 37.2, -119, { raised: true, rail: 'LR' }],
   [502, 33.9, -79],
@@ -79,6 +91,8 @@ const POINTS: TrackPoint[] = [
 
 export const blossom: TrackDef = {
   id: 'blossom',
+  // the drift mountain: drifts linked hairpin to hairpin build a bigger and bigger boost
+  driftChain: 0.4,
   name: 'Blossom Pass',
   ambience: 'snow',
   width: 17,
@@ -100,7 +114,7 @@ export const blossom: TrackDef = {
   branches: [
     {
       // round the north side of the pagoda: the same length, a boost strip instead of items
-      name: 'North court', from: 13, to: 15, odds: 0.5,
+      name: 'North court', from: 9, to: 11, odds: 0.5,
       points: [
         [90, 89, -622, { pad: 0 }],
         [160, 92, -664],
@@ -109,7 +123,7 @@ export const blossom: TrackDef = {
     },
     {
       // the ridge road: shorter and steeper, with a jump over the ravine
-      name: 'Ridge jump', from: 16, to: 21, odds: 0.35,
+      name: 'Ridge jump', from: 12, to: 31, odds: 0.35,
       points: [
         [330, 89, -500],
         [392, 87, -518, { bank: 3 }],
@@ -120,6 +134,16 @@ export const blossom: TrackDef = {
         [400, 76.5, -321, { raised: true, w: 20 }],
         [400, 69, -268, { raised: true, w: 20 }],
         [390, 55, -230],
+      ],
+    },
+    {
+      // the drift gate: link five drifts down the hairpins and the gate at
+      // the fifth swings open on a cut straight past the last of them
+      name: 'Drift gate', from: 25, to: 30, odds: 0,
+      points: [
+        [330, 53, -266, { w: 15 }],
+        [337, 49, -232, { w: 15, pad: 0 }],
+        [327, 45.5, -211, { w: 15 }],
       ],
     },
   ],
@@ -167,6 +191,7 @@ export const blossom: TrackDef = {
     redBridge(k)
     const fall = waterfall(k)
     ravineSign(k, c.branches[1]!)
+    driftGate(k, c.branches[2]!)
 
     mist(k, d.spots(26, 60, 300, { clear: 40 }).map((s) => s.setY(s.y + 8)), [90, 170], 0xffd8c8, 0.16)
     const petals = drift(k, 520, 0xffc4d8, 0.42, 2.2)
@@ -353,4 +378,83 @@ function ravineSign(k: BuildKit, ridge: Circuit): void {
   for (const s of [-1, 1]) posts.post(0.15, 0.15, 8.5, q.x + qr.x * s * off, q.y, q.z + qr.z * s * off, 0x2a2e34, 8)
   place(k, posts, surface('metal'))
   for (const s of [-1, 1]) k.world.addPost(q.x + qr.x * s * off, q.z + qr.z * s * off, 0.3)
+}
+
+/**
+ * The drift gate. Drifts count from the top of the hairpin stack: each one
+ * finished within a few seconds of the last links on, a pause breaks the
+ * chain. Five linked by the fifth hairpin and the red gate swings open for
+ * a few seconds, on a cut past the last hairpin. Five lanterns on the gate
+ * light up as your chain grows, so you can see how you're doing.
+ */
+function driftGate(k: BuildKit, cut: Circuit): void {
+  const { circuit: c, world: w, root } = k
+  const P = blossom.points
+  const top = c.track(P[12]![0], P[12]![2], 0, c.count, P[12]![1])
+  const gi = 10, gp = cut.samples[gi]!, gt = cut.tangents[gi]!, gr = cut.rights[gi]!
+  const half = cut.widths[gi]! / 2 + 0.8, yaw = Math.atan2(-gt.x, -gt.z)
+  // the gateway: two red posts, a beam, and a pair of doors between them
+  const frame = new Mesher()
+  for (const sd of [-1, 1]) {
+    frame.post(0.6, 0.7, 8, gp.x + gr.x * sd * half, gp.y - 0.5, gp.z + gr.z * sd * half, 0xc8261c, 10)
+    w.addPost(gp.x + gr.x * sd * half, gp.z + gr.z * sd * half, 0.8)
+  }
+  frame.box(half * 2 + 4, 0.8, 1, gp.x, gp.y + 7.4, gp.z, 0xc8261c, yaw)
+  frame.box(half * 2 + 2, 0.5, 0.8, gp.x, gp.y + 6.2, gp.z, 0x2a1a14, yaw)
+  place(k, frame, surface('paint', { rough: 0.5 }))
+  const doorMat = surface('wood', { rough: 0.6 })
+  const doors = [-1, 1].map((sd) => {
+    const hinge = new THREE.Group()
+    hinge.position.set(gp.x + gr.x * sd * (half - 0.6), gp.y, gp.z + gr.z * sd * (half - 0.6))
+    hinge.rotation.y = yaw
+    const leaf = new THREE.Mesh(new THREE.BoxGeometry(half - 0.6, 5.6, 0.4), doorMat)
+    leaf.position.set(-sd * (half - 0.6) / 2, 2.8, 0)
+    hinge.add(leaf)
+    hinge.userData['keep'] = true
+    root.add(hinge)
+    return { hinge, sd }
+  })
+  const lamps = Array.from({ length: 5 }, (_, q) => {
+    const m = new THREE.Mesh(new THREE.SphereGeometry(0.45, 10, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.3, 0.06, 0.04), toneMapped: false }))
+    const u = (q - 2) * 2.2
+    m.position.set(gp.x + gr.x * u, gp.y + 6.9, gp.z + gr.z * u)
+    root.add(m)
+    return m
+  })
+  const solid: Solid = { x: gp.x, z: gp.z, r: half + 1, hx: half, hz: 0.6, cos: Math.cos(yaw), sin: Math.sin(yaw), top: gp.y + 7 }
+  w.movers.push(solid)
+  // each racer's chain: how many linked, when the last drift finished, and its drift count then
+  const chains: { n: number; last: number; seen: number }[] = []
+  let openFor = 0, swing = 0, t = 0
+  const LINK = 5
+  k.onFrame((f) => {
+    t += f.dt
+    let player = 0
+    f.racers.forEach((r, q) => {
+      const ch = chains[q] ?? (chains[q] = { n: 0, last: -99, seen: r.drifts })
+      const into = (r.s - top + c.count) % c.count
+      const onStack = r.path === c && into < c.count * 0.2
+      if (!onStack) { ch.n = 0; ch.seen = r.drifts; return }
+      if (r.drifts > ch.seen) {
+        ch.n = t - ch.last < 4.5 ? ch.n + 1 : 1
+        ch.last = t
+        ch.seen = r.drifts
+        if (ch.n >= LINK) openFor = 6
+      }
+      if (t - ch.last > 4.5 && ch.n < LINK) ch.n = 0
+      if (r.isPlayer) player = ch.n
+    })
+    openFor = Math.max(0, openFor - f.dt)
+    const open = openFor > 0
+    swing += ((open ? 1 : 0) - swing) * Math.min(1, f.dt * 4)
+    for (const d of doors) d.hinge.rotation.y = yaw + d.sd * swing * 1.5
+    solid.top = swing > 0.7 ? -1e6 : gp.y + 7
+    cut.join!.odds = open ? 0.7 : 0
+    // closed, nobody is steered onto it by mistake (or rescued there)
+    cut.shut = swing < 0.5
+    lamps.forEach((m, q) => {
+      const lit = open || q < player
+      ;(m.material as THREE.MeshBasicMaterial).color.setRGB(lit ? 5 : 0.3, lit ? 2.6 : 0.06, lit ? 0.6 : 0.04)
+    })
+  })
 }

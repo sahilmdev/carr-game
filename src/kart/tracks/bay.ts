@@ -4,7 +4,7 @@ import { Mesher, place, surface } from '../art/arch'
 import { forest, grass } from '../art/foliage'
 import { mountainRing } from '../art/terrain'
 import type { BuildKit, TrackDef, TrackPoint } from '../types'
-import { arrows, crates, gantry, glow, stands } from './parts'
+import { arrows, crates, findGap, gantry, glow, movingDeck, stands } from './parts'
 
 /*
  * Cosmos Bay, as a journey round a bay. Start on the seafront promenade,
@@ -72,8 +72,13 @@ const POINTS: TrackPoint[] = [
   [452, 22, -260],
   [422, 18, -160, { pad: 0 }],
   [362, 9, -90], // 27: the pier leaves here
-  // 28: round the harbour basin and home
+  // 28: round the harbour basin, over the drawbridge across its mouth, and home
   [350, 6, 0],
+  [338, 6.5, 13, { raised: true, rail: 'LR' }],
+  [322, 6.5, 22, { raised: true, rail: 'LR' }],
+  [310, 6.5, 28, { gap: true }],
+  [296, 6.5, 34, { gap: true }],
+  [284, 6.5, 39, { raised: true, rail: 'LR' }],
   [270, 5, 42],
   [205, 5, 12],
 ]
@@ -96,6 +101,17 @@ export const bay: TrackDef = {
   },
   points: POINTS,
   branches: [
+    {
+      // the beach below the promenade: dry and quick at low tide, wet and
+      // slow as it comes in on lap 2, under water on the last lap
+      name: 'Beach', from: 0, to: 3, odds: 0.5,
+      points: [
+        [112, 3, -40, { w: 14, deck: 'dirt' }],
+        [40, 1.6, -54, { w: 14, deck: 'dirt' }],
+        [-60, 1.6, -55, { w: 14, deck: 'dirt', pad: 0 }],
+        [-150, 3, -38, { w: 14, deck: 'dirt' }],
+      ],
+    },
     {
       // off the end of the fishing pier and over the harbour mouth: a boost
       // (or nitro, or a drift boost) carries you across; flat out isn't enough
@@ -126,12 +142,12 @@ export const bay: TrackDef = {
   async build(k) {
     const { circuit: c, world: w, d, root } = k
     gantry(k, 'Cosmos Bay', '#ff8a3c')
-    stands(k, 8, 50, 1, [0xd8462e, 0xe8e6e0, 0x2f7fb0, 0xd9a62e, 0x2a2e38, 0x5a8a5a], 0xff8a3c, 'Cosmos Bay Grand Prix')
+    stands(k, 8, 50, -1, [0xd8462e, 0xe8e6e0, 0x2f7fb0, 0xd9a62e, 0x2a2e38, 0x5a8a5a], 0xff8a3c, 'Cosmos Bay Grand Prix')
     arrows(k, 0xffa040)
     mountainRing(root, 0, -300, { inner: 1500, outer: 3600, height: 420, rock: 0x6a7a78, seed: 4 })
 
     buildTown(k)
-    buildHarbour(k, c.branches[0]!)
+    buildHarbour(k, c.branches[1]!)
     buildBridge(k)
     buildIsland(k)
     const beacon = lighthouse(k, -528, -250)
@@ -176,7 +192,70 @@ export const bay: TrackDef = {
     d.prop('bk:dutch_ship_large_01', [trs(40, -1.2, -380, 2.2, 1.3)], 0, undefined, 0)
     d.prop('ocean_buoy', [trs(-120, 0, -300, 0, 1.6), trs(120, 0, -250, 1, 1.6), trs(-30, 0, -460, 2, 1.6), trs(200, 0, -420, 2, 1.6)])
 
-    // ── lap changes: wind, waves over the causeway, a storm swell on the last lap
+    // ── the tide over the beach
+    {
+      const beach = c.branches[0]!
+      const wet: { x: number; z: number; r: number; surface: 'mud'; on: boolean }[] = []
+      for (let q = 0.15; q < 0.9; q += 0.12) {
+        const s = beach.samples[Math.floor(beach.count * q)]!
+        const pt = { x: s.x, z: s.z, r: 10, surface: 'mud' as const, on: false }
+        wet.push(pt)
+        k.world.patches.push(pt)
+      }
+      const mid = beach.samples[Math.floor(beach.count / 2)]!
+      const sea = new THREE.Mesh(new THREE.PlaneGeometry(260, 40), new THREE.MeshStandardMaterial({ color: 0x2f7fa8, roughness: 0.08, metalness: 0.2, transparent: true, opacity: 0.75 }))
+      sea.rotation.x = -Math.PI / 2
+      sea.position.set(mid.x, -2, mid.z - 4)
+      k.root.add(sea)
+      k.onFrame((f) => {
+        const last = f.totalLaps > 1 && f.lap >= f.totalLaps
+        const tide = last ? 1 : f.lap >= 2 ? 0.55 : 0
+        sea.position.y += ((tide > 0 ? 1.2 + tide * 1.1 : -2) - sea.position.y) * Math.min(1, f.dt * 0.4)
+        // soft sand slows you even at low tide; from lap 2 the whole beach is wet
+        wet.forEach((pt, n) => { pt.on = tide > 0 || n % 2 === 0 })
+        beach.join!.odds = last ? 0 : f.lap >= 2 ? 0.25 : 0.5
+      })
+    }
+
+    // ── the drawbridge: two leaves that lift on a cycle. Down, it is road;
+    // part way up, the near leaf is a ramp and you fly the split onto the far
+    // one; right up, it is a big leap. From lap 2 it lifts higher, and faster
+    // on the last lap.
+    {
+      const g = findGap(c, 303, 31)
+      const lip = c.samples[g.i0 - 1]!, land = c.samples[g.i1 + 1]!
+      const yaw = Math.atan2(land.x - lip.x, land.z - lip.z)
+      const span = Math.hypot(land.x - lip.x, land.z - lip.z), half = span / 2 + 0.6
+      const wd = c.widths[g.i0 - 1]! + 0.4
+      const near = movingDeck(k, wd, half, 0x5a6068), far = movingDeck(k, wd, half, 0x5a6068)
+      const mx = (lip.x + land.x) / 2, mz = (lip.z + land.z) / 2
+      const fx = Math.sin(yaw), fz = Math.cos(yaw)
+      // the towers at each end, with the lifting gear
+      const towers = new Mesher()
+      for (const e of [lip, land]) for (const sd of [-1, 1]) {
+        const x = e.x + fz * sd * (wd / 2 + 2), z = e.z - fx * sd * (wd / 2 + 2)
+        towers.box(3, 16, 3, x, e.y + 5, z, 0x8a8e94, yaw).box(3.6, 1.2, 3.6, x, e.y + 13.4, z, 0xb83a2a, yaw)
+        k.world.addPost(x, z, 2)
+      }
+      place(k, towers, surface('paint', { rough: 0.5 }))
+      const lamp = glow(4, 0.3, 0.2)
+      const lamps = [lip, land].map((e) => { const m = new THREE.Mesh(new THREE.SphereGeometry(0.6, 8, 6), lamp); m.position.set(e.x, e.y + 14.4, e.z); k.root.add(m); return m })
+      void lamps
+      let phase = 0
+      k.onFrame((f) => {
+        const last = f.totalLaps > 1 && f.lap >= f.totalLaps
+        phase = (phase + f.dt * (last ? 1.35 : 1)) % 16
+        const top = f.lap >= 2 ? 7 : 5
+        // down 6 s, up over 3 s, held 3 s, down over 3 s, 1 s rest
+        const u = phase < 6 ? 0 : phase < 9 ? (phase - 6) / 3 : phase < 12 ? 1 : phase < 15 ? 1 - (phase - 12) / 3 : 0
+        const h = top * u * u * (3 - 2 * u)
+        near.set((lip.x + mx) / 2, (lip.z + mz) / 2, yaw, lip.y, lip.y + h, 0, 0)
+        far.set((land.x + mx) / 2, (land.z + mz) / 2, yaw, land.y + h, land.y, 0, 0)
+        lamp.color.setRGB(u > 0 && Math.sin(f.time * 8) > 0 ? 5 : 0.4, 0.3, 0.2)
+      })
+    }
+
+    // ── lap changes, waves over the causeway, a storm swell on the last lap
     const spray: THREE.Sprite[] = []
     const dot = softDot()
     for (let q = 0; q < 30; q++) {
@@ -282,7 +361,9 @@ function buildTown(k: BuildKit): void {
     const r = c.rights[i]!
     for (const s of [-1, 1]) {
       const x = p.x + r.x * s * (c.widths[i]! / 2 + 3.4), z = p.z + r.z * s * (c.widths[i]! / 2 + 3.4), y = w.terrainAt(x, z)
-      if (y < 0.6 || d.roadGap(x, z) < 2 || w.blocked(x, z, 1)) continue
+      const pr = { i: -1, lat: 0, y: 0 }
+      const onAny = (ax: number, az: number) => c.all.some((o) => o.roadAt(ax, az, y + 3, pr))
+      if (y < 0.6 || d.roadGap(x, z) < 2 || w.blocked(x, z, 1) || onAny(x, z) || onAny(x + r.x * s * 3, z + r.z * s * 3) || onAny(x - r.x * s * 1.5, z - r.z * s * 1.5)) continue
       if (i % 12 === 0) lamps.push(trs(x, y, z, Math.atan2(-r.x * s, -r.z * s), 1.35))
       else front.push(new THREE.Vector3(x, y, z))
     }

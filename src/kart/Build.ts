@@ -31,8 +31,7 @@ export function buildBase(def: TrackDef, c: Circuit, w: World, root: THREE.Group
 }
 
 function edge(c: Circuit, i: number, lat: number, y = 0): THREE.Vector3 {
-  const p = c.samples[i]!, r = c.rights[i]!
-  return new THREE.Vector3(p.x + r.x * lat, p.y + lat * Math.tan(c.banks[i]!) + y, p.z + r.z * lat)
+  return c.at(i, lat, y, new THREE.Vector3())
 }
 
 const ROAD_GLSL = /* glsl */ `
@@ -83,7 +82,8 @@ const ROAD_MAP = /* glsl */ `
       float score = smoothstep(0.66, 0.84, aNoise(vec2(lat * 9.0, along * 0.05)));
       c = mix(vec3(0.5, 0.74, 0.9), vec3(0.8, 0.92, 0.98), big);
       c = mix(c, vec3(0.96, 0.99, 1.0), score * 0.45 + cracks * 0.7);
-      gRough = 0.12 + score * 0.3;
+      // matte enough not to mirror the sun straight into your eyes
+      gRough = 0.34 + score * 0.3;
     } else if (deck == 4) {
       // raised steel plate
       vec2 q = vec2(lat, along) / 0.5;
@@ -157,24 +157,32 @@ function buildRoad(def: TrackDef, c: Circuit, root: THREE.Group, shared?: RoadCo
     for (let k = -14; k <= 14; k++) s += raw[c.closed ? (i + k + n) % n : Math.max(0, Math.min(n - 1, i + k))]!
     line[i] = s / 29
   }
+  const earth = new THREE.Color(def.road?.grime ?? 0x5a5044).multiplyScalar(0.55).getHex()
   let along = 0
+  // a half-pipe or a twist needs the road curved across: more columns
+  const COLS = c.pipe.some((v) => v > 0) || c.roll.some((v) => v !== 0) ? 9 : 3
   const kerbs = style.kerb !== false && (style.lines ?? 'circuit') === 'circuit'
   for (let i = 0; i <= last; i++) {
     const k = i % n, half = c.widths[k]! / 2
-    const a = edge(c, k, -half, 0.02), b = edge(c, k, half, 0.02), m = edge(c, k, 0, 0.02)
+    const a = edge(c, k, -half, 0.02), b = edge(c, k, half, 0.02)
     const kerb = kerbs && !c.raised[k] ? THREE.MathUtils.smoothstep(Math.abs(c.bends[k]!), 0.0035, 0.0065) : 0
-    pos.push(a.x, a.y, a.z, m.x, m.y, m.z, b.x, b.y, b.z)
-    road.push(-half, along, 0, along, half, along)
-    uv.push(0, along / 10, 0.5, along / 10, 1, along / 10)
-    for (let q = 0; q < 3; q++) info.push(half, kerb, line[k]!, c.deck[k]!)
+    for (let q = 0; q < COLS; q++) {
+      const u = q / (COLS - 1), lat = (u * 2 - 1) * half, v = edge(c, k, lat, 0.02)
+      pos.push(v.x, v.y, v.z)
+      road.push(lat, along)
+      uv.push(u, along / 10)
+      info.push(half, kerb, line[k]!, c.deck[k]!)
+    }
     along += 2
     if (i < last && !c.gap[k]) {
-      const o = i * 3
-      idx.push(o, o + 1, o + 3, o + 1, o + 4, o + 3, o + 1, o + 2, o + 4, o + 2, o + 5, o + 4)
+      const o = i * COLS
+      for (let q = 0; q < COLS - 1; q++) idx.push(o + q, o + q + 1, o + q + COLS, o + q + 1, o + q + COLS + 1, o + q + COLS)
     }
     const d = c.raised[k] ? 1.5 : 0.8
-    side.push(a.x, a.y, a.z, a.x, a.y - d * 0.5, a.z, a.x + c.rights[k]!.x * 1.2, a.y - d, a.z + c.rights[k]!.z * 1.2, b.x - c.rights[k]!.x * 1.2, b.y - d, b.z - c.rights[k]!.z * 1.2, b.x, b.y - d * 0.5, b.z, b.x, b.y, b.z)
-    const tone = c.deck[k] === 2 ? 0x4a3524 : c.deck[k] === 3 ? 0xbfd8e6 : 0x8d9096
+    const a1 = edge(c, k, -half, -d * 0.5), a2 = edge(c, k, -half + 1.2, -d), b2 = edge(c, k, half - 1.2, -d), b1 = edge(c, k, half, -d * 0.5)
+    side.push(a.x, a.y, a.z, a1.x, a1.y, a1.z, a2.x, a2.y, a2.z, b2.x, b2.y, b2.z, b1.x, b1.y, b1.z, b.x, b.y, b.z)
+    // a bridge shows concrete; a road on the ground shows earth where a hillside drops away under it
+    const tone = c.deck[k] === 2 ? 0x4a3524 : c.deck[k] === 3 ? 0xbfd8e6 : c.raised[k] ? 0x8d9096 : earth
     const cc = new THREE.Color(tone)
     for (let q = 0; q < 6; q++) col.push(cc.r, cc.g, cc.b)
     if (i < last && !c.gap[k]) for (let q = 0; q < 5; q++) { const o = i * 6 + q; sideIdx.push(o, o + 6, o + 1, o + 1, o + 6, o + 7) }
@@ -391,10 +399,26 @@ function buildStart(c: Circuit, root: THREE.Group): void {
       g.fillRect(x * s, y * s, s, s)
     }
   })
-  const p = c.samples[0]!, t = c.tangents[0]!
-  const line = new THREE.Mesh(new THREE.PlaneGeometry(c.widths[0]!, 3), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.75 }))
-  line.position.set(p.x, p.y + 0.07, p.z)
-  line.rotation.set(-Math.PI / 2, 0, Math.atan2(-t.x, -t.z))
+  // Draped over the road itself (camber, bank, crown), edge to edge: a flat
+  // plane sank under the high side and only showed across part of the road.
+  const p = c.samples[0]!, t = c.tangents[0]!, rt = c.rights[0]!
+  const roads = root.children.filter((o) => (o as THREE.Mesh).isMesh)
+  root.updateMatrixWorld(true)
+  const ray = new THREE.Raycaster(), down = new THREE.Vector3(0, -1, 0)
+  const NX = 24, half = c.widths[0]! / 2
+  const geo = new THREE.PlaneGeometry(1, 1, NX, 2)
+  const pos = geo.getAttribute('position')
+  for (let v = 0; v < pos.count; v++) {
+    const lx = pos.getX(v) * half * 2, lz = pos.getY(v) * 3
+    const x = p.x + rt.x * lx + t.x * lz, z = p.z + rt.z * lx + t.z * lz
+    ray.set(new THREE.Vector3(x, p.y + 6, z), down)
+    ray.far = 14
+    // the first hit near the road's own height: never up a wall or bank beside it
+    const hit = ray.intersectObjects(roads, false).find((h) => Math.abs(h.point.y - p.y) < 0.9)
+    pos.setXYZ(v, x, (hit ? hit.point.y : p.y) + 0.06, z)
+  }
+  geo.computeVertexNormals()
+  const line = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: tex, roughness: 0.75, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2 }))
   root.add(line)
   // painted grid boxes
   const mat = new THREE.MeshBasicMaterial({ color: 0xd4d4d0, transparent: true, opacity: 0.7 })

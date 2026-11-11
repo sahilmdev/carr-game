@@ -48,6 +48,7 @@ function setItem(kind: string | null, rolling: boolean, count: number): void {
   box.classList.toggle('empty', !kind)
   box.classList.toggle('rolling', rolling)
   box.classList.remove('ready')
+  $('touch-item').classList.toggle('ready', !!kind && !rolling)
   $('hud-item-count').textContent = kind && count > 1 ? `×${count}` : ''
   if (!kind) { icon.innerHTML = ''; return }
   if (rolling) {
@@ -97,6 +98,10 @@ const ui: KartUI = {
     $('race-end').classList.add('hidden')
   },
   raceEnded: (rows) => showResults(rows),
+  replay: (on) => {
+    $('replay-bar').classList.toggle('hidden', !on)
+    $('race-end').classList.toggle('hidden', on)
+  },
   loading: (on, text) => {
     $('track-loading').classList.toggle('hidden', !on)
     if (text) $('track-loading-name').textContent = text
@@ -104,6 +109,30 @@ const ui: KartUI = {
 }
 
 const app = new KartApp($('game') as HTMLCanvasElement, $('minimap') as HTMLCanvasElement, ui)
+
+// ── touch: steer, brake, accelerate, nitro and use the item, on phones and tablets
+const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0
+const touch = $('touch-controls'), itemBtn = $('touch-item')
+itemBtn.classList.remove('hidden')
+function bindTouch(id: string, set: (active: boolean) => void): void {
+  const el = $(id)
+  const on = (e: Event) => { e.preventDefault(); set(true) }
+  const off = (e: Event) => { e.preventDefault(); set(false) }
+  el.addEventListener('touchstart', on, { passive: false })
+  el.addEventListener('touchend', off, { passive: false })
+  el.addEventListener('touchcancel', off, { passive: false })
+  el.addEventListener('mousedown', () => set(true))
+  el.addEventListener('mouseup', () => set(false))
+  el.addEventListener('mouseleave', () => set(false))
+}
+bindTouch('touch-accel', (a) => app.input.setTouchAccelerate(a))
+bindTouch('touch-brake', (a) => app.input.setTouchBrake(a))
+bindTouch('touch-left', (a) => app.input.setTouchLeft(a))
+bindTouch('touch-right', (a) => app.input.setTouchRight(a))
+bindTouch('touch-nitro', (a) => app.input.setTouchNitro(a))
+bindTouch('touch-item', (a) => app.input.setTouchItem(a))
+// show the pad while racing on a touch screen; the item button glows when there's something to use
+new MutationObserver(() => touch.classList.toggle('hidden', !isTouch || hud.classList.contains('hidden'))).observe(hud, { attributes: true, attributeFilter: ['class'] })
 
 // ── the current run ──
 interface Run { cup: CupInfo | null; round: number; track: string; laps: number; difficulty: Difficulty; totals: Map<string, number> }
@@ -137,7 +166,9 @@ function showResults(rows: RaceResultRow[]): void {
   const lastRound = !!cup && r.round >= cup.races.length - 1
   $('end-round').textContent = cup ? `${cup.name}  ·  Race ${r.round + 1} of ${cup.races.length}` : `${r.laps} ${r.laps === 1 ? 'lap' : 'laps'}`
   const next = $('end-next') as HTMLButtonElement
-  next.textContent = cup ? (lastRound ? 'See results' : 'Next race') : 'Race again'
+  next.textContent = cup ? (lastRound ? 'See results' : 'Next race') : 'Restart this race'
+  $('end-other').classList.toggle('hidden', !!cup)
+  $('end-replay').classList.toggle('hidden', !app.hasReplay)
   $('race-end').classList.remove('hidden')
   next.focus()
   next.onclick = () => {
@@ -211,6 +242,9 @@ function backToLobby(): void {
   lobby.reset()
 }
 $('end-exit').addEventListener('click', backToLobby)
+$('end-other').addEventListener('click', () => { backToLobby(); lobby.openTracks() })
+$('end-replay').addEventListener('click', () => { app.startReplay() })
+$('replay-skip').addEventListener('click', () => app.stopReplay())
 $('cup-end-done').addEventListener('click', backToLobby)
 $('exit-btn').addEventListener('click', backToLobby)
 

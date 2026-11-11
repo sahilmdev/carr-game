@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { DECKS, type BranchDef, type TrackDef, type TrackPoint } from './types'
 
 const STEP = 2 // metres between samples
+const _axis = new THREE.Vector3()
 const CELL = 14
 
 /**
@@ -15,8 +16,16 @@ export class Circuit {
   readonly branches: Circuit[] = []
   /** For a branch: the main-loop samples where it leaves and rejoins, and how keen rivals are on it. */
   join: { from: number; to: number; odds: number; name: string } | null = null
+  /** For a branch: physically closed off for now (boarded up). Nobody is put on it, or follows it. */
+  shut = false
   /** Inside a hill: the ground above stays put. */
   readonly tunnel: boolean[] = []
+  /** On rails: no steering, only leaning. */
+  readonly lock: boolean[] = []
+  /** Half-pipe wall radius here (0: a flat road). */
+  readonly pipe: number[] = []
+  /** How far the road is twisted about its length here (radians). */
+  readonly roll: number[] = []
   /** Glide here: wings out over the drop. */
   readonly glide: boolean[] = []
   /** Item crystals across the road at these samples. */
@@ -74,6 +83,15 @@ export class Circuit {
       this.glide.push(!!o?.glide)
       this.raised.push(!!o?.raised || !!o?.gap || !!o?.tunnel)
       this.tunnel.push(!!o?.tunnel)
+      this.lock.push(!!a[3]?.lock && !!b[3]?.lock)
+      const pa = a[3]?.pipe ?? 0, pb = b[3]?.pipe ?? 0
+      this.pipe.push(pa + (pb - pa) * k)
+      // a twist ending on a whole turn stays there (it's upright again)
+      const whole = (r: number | undefined) => r !== undefined && Math.abs(r / (Math.PI * 2) - Math.round(r / (Math.PI * 2))) < 1e-3
+      let ra = a[3]?.roll, rb = b[3]?.roll
+      if (ra === undefined && rb !== undefined) ra = whole(rb) && rb !== 0 ? rb : 0
+      if (rb === undefined && ra !== undefined) rb = whole(ra) ? ra : 0
+      this.roll.push((ra ?? 0) + ((rb ?? 0) - (ra ?? 0)) * k)
       this.deck.push(DECKS.indexOf(o?.deck ?? def.deck ?? 'asphalt'))
       const rail = (k < 0.5 ? a[3]?.rail : b[3]?.rail) ?? def.rail ?? ''
       this.railL.push(rail.includes('L'))
@@ -143,10 +161,44 @@ export class Circuit {
   }
 
   /** The main loop with the track's branches built off it. */
+  /** Vertical loops on this road: the sample they start at, their radius and sideways drift. */
+  readonly loops: { i: number; r: number; side: number }[] = []
+
   static withBranches(def: TrackDef): Circuit {
     const main = new Circuit(def)
+    // the hoop goes in on one side and comes out the other, a full deck apart,
+    // so you never see the car pass through the track it's about to drive
+    for (const L of def.loops ?? []) main.loops.push({ i: main.track(L.x, L.z, 0, main.count), r: L.r, side: (Math.sign(L.side ?? 1) || 1) * Math.max(Math.abs(L.side ?? 0), LOOP_SHIFT) })
     for (const b of def.branches ?? []) main.addBranch(def, b)
+    main.openRails()
     return main
+  }
+
+  /**
+   * Where a fork or a join runs alongside, the rail on that side has to open,
+   * but only over the stretch where the two roads actually touch: an open
+   * edge before the branch has split off is just a place to fall off.
+   */
+  private openRails(): void {
+    const paths = this.all
+    if (paths.length < 2) return
+    for (const a of paths) for (let i = 0; i < a.count; i++) {
+      if (!a.railL[i] && !a.railR[i]) continue
+      const p = a.samples[i]!, r = a.rights[i]!, half = a.widths[i]! / 2
+      for (const side of [-1, 1]) {
+        if (!(side < 0 ? a.railL[i] : a.railR[i])) continue
+        const ex = p.x + r.x * side * (half + 1.2), ez = p.z + r.z * side * (half + 1.2)
+        let touch = false
+        for (const b of paths) {
+          if (b === a || touch) continue
+          for (const j of b.near(ex, ez) ?? []) {
+            const q = b.samples[j]!
+            if (Math.abs(q.y - p.y) < 2.5 && Math.hypot(q.x - ex, q.z - ez) < b.widths[j]! / 2) { touch = true; break }
+          }
+        }
+        if (touch) (side < 0 ? a.railL : a.railR)[i] = false
+      }
+    }
   }
 
   private addBranch(def: TrackDef, b: BranchDef): void {
@@ -155,7 +207,35 @@ export class Circuit {
     const br = new Circuit(def, pts, false)
     const near = (v: THREE.Vector3) => this.track(v.x, v.z, 0, this.count)
     br.join = { from: near(br.samples[0]!), to: near(br.samples[br.count - 1]!), odds: b.odds ?? 0.5, name: b.name ?? '' }
+    this.blendInto(br)
     this.branches.push(br)
+  }
+
+  /**
+   * Where a branch still lies over the main road at its fork and its join it
+   * takes the main road's height exactly, then eases away to its own, so
+   * there is never a ledge or a lip between the two surfaces.
+   */
+  private blendInto(br: Circuit): void {
+    const EASE = 30
+    for (const dir of [1, -1]) {
+      // a jump close to this end: its ramp is shaped on purpose, leave it alone
+      let jumpNear = false
+      for (let n = 0, j = dir > 0 ? 0 : br.count - 1; n < 70 && j >= 0 && j < br.count; n++, j += dir) if (br.gap[j]) jumpNear = true
+      if (jumpNear) continue
+      let i = dir > 0 ? 0 : br.count - 1, off = 0, eased = 0
+      for (let n = 0; n < br.count / 2; n++, i += dir) {
+        const p = br.samples[i]!
+        // the two road surfaces still overlap here (edge on edge, not just centre on road)
+        const j = this.track(p.x, p.z, 0, this.count, p.y), m = this.samples[j]!, r = this.rights[j]!
+        const lat = (p.x - m.x) * r.x + (p.z - m.z) * r.z
+        const over = !br.gap[i] && !this.gap[j] && Math.abs(m.y - p.y) < 5 && Math.abs(lat) < this.widths[j]! / 2 + br.widths[i]! / 2 - 1
+        if (over && eased === 0) { off = m.y - p.y; p.y = m.y; continue }
+        if (++eased > EASE || br.gap[i]) break
+        const t = eased / EASE
+        p.y += off * (1 - t * t * (3 - 2 * t))
+      }
+    }
   }
 
   /** Main-loop sample a branch sample stands for, for lap progress. */
@@ -186,7 +266,7 @@ export class Circuit {
     // on (a road that passes over itself, like a spiral, has two), then the nearest
     let best = 1e9, bestY = -1e9
     for (const i of list) {
-      if (this.gap[i]) continue
+      if (this.gap[i] || Math.abs(this.tilt(i)) > 0.3) continue
       const p = this.samples[i]!
       const dx = x - p.x, dz = z - p.z
       const d = dx * dx + dz * dz
@@ -200,7 +280,7 @@ export class Circuit {
       // doesn't carry on through the air to the nearest sample over the gap
       const t = this.tangents[i]!, th = Math.hypot(t.x, t.z) || 1
       if (Math.abs((dx * t.x + dz * t.z) / th) > 2.6) continue
-      const ry = p.y + lat * Math.tan(this.banks[i]!)
+      const ry = p.y + lat * Math.tan(this.banks[i]!) + this.lift(i, lat)
       // at the far edge of a gap, a car that comes in low hits the edge: it
       // can't step up onto the road the way it would climbing a slope
       const edge = this.gap[i - 1] || this.gap[i - 2] || this.gap[i + 1] || this.gap[i + 2]
@@ -212,6 +292,31 @@ export class Circuit {
       out.y = ry
     }
     return out.i >= 0
+  }
+
+  /** Height the half-pipe wall adds at this distance from the centre. */
+  lift(i: number, lat: number): number {
+    const R = this.pipe[i]!
+    if (!R) return 0
+    const x = Math.min(R * 0.95, Math.max(0, Math.abs(lat) - (this.widths[i]! / 2 - R)))
+    return R - Math.sqrt(R * R - x * x)
+  }
+
+  /** The twist here, as the angle from upright (-π..π). */
+  tilt(i: number): number {
+    const r = this.roll[i]!
+    return r - Math.round(r / (Math.PI * 2)) * Math.PI * 2
+  }
+
+  /** A point on the road surface (with bank, half-pipe and twist), `y` above it. */
+  at(i: number, lat: number, y: number, out: THREE.Vector3): THREE.Vector3 {
+    const p = this.samples[i]!, r = this.rights[i]!, t = this.tangents[i]!
+    const up = lat * Math.tan(this.banks[i]!) + this.lift(i, lat) + y
+    const roll = this.roll[i]!
+    if (!roll) return out.set(p.x + r.x * lat, p.y + up, p.z + r.z * lat)
+    // turn the offset about the road's direction
+    const off = new THREE.Vector3(r.x * lat, up, r.z * lat).applyAxisAngle(_axis.copy(t).normalize(), -roll)
+    return out.set(p.x + off.x, p.y + off.y, p.z + off.z)
   }
 
   /** Nearest sample to a point, searching a window round `from`. */
@@ -255,3 +360,6 @@ export class Circuit {
     return { pos, yaw: Math.atan2(-t.x, -t.z), i }
   }
 }
+
+/** Sideways shift between a loop's entry and exit (the loop deck is 8 m wide). */
+export const LOOP_SHIFT = 9.5

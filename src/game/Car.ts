@@ -87,6 +87,11 @@ export class Car {
   private paint = CAR_PAINT_COLOR
   private readonly headMats: THREE.MeshStandardMaterial[] = []
   private headlightLevel = 0
+  /** Lamp glows and the fake beam every car carries, placed on the body by applyModel. */
+  private readonly lamps = new THREE.Group()
+  private readonly beamMat = new THREE.MeshBasicMaterial({ color: 0xfff2d8, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false })
+  private readonly glareMat = new THREE.SpriteMaterial({ color: 0xfff6e8, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false })
+  private readonly tailGlowMat = new THREE.SpriteMaterial({ color: 0xff2410, transparent: true, opacity: 0.45, blending: THREE.AdditiveBlending, depthWrite: false })
   private readonly headlight: THREE.SpotLight | null = null
   /** Nitro tank 0–1 and whether it's firing this frame. */
   public nitro = 1
@@ -146,6 +151,30 @@ export class Car {
       this.headlight.position.set(0, 0.75, -2.2)
       this.headlight.target.position.set(0, -0.6, -24)
       this.mesh.add(this.headlight, this.headlight.target)
+    }
+    // Lamps: a soft glare at each headlight and tail light, and a faint
+    // beam cone ahead so cars read on dark tracks (no real light: cheap for rivals too)
+    {
+      const tex = glowTexture()
+      this.glareMat.map = tex
+      this.tailGlowMat.map = tex
+      const beamGeo = new THREE.ConeGeometry(2.4, 18, 20, 1, true)
+      beamGeo.translate(0, -9, 0)
+      beamGeo.rotateX(Math.PI / 2 - 0.05) // opens forward (-Z), dips a little toward the road
+      // fade along the beam: alpha from vertex colour
+      const pos = beamGeo.getAttribute('position')
+      const col = new Float32Array(pos.count * 3)
+      for (let i = 0; i < pos.count; i++) { const f = Math.max(0, 1 + pos.getZ(i) / 18) ** 2; col.set([f, f, f], i * 3) }
+      beamGeo.setAttribute('color', new THREE.BufferAttribute(col, 3))
+      this.beamMat.vertexColors = true
+      for (const side of [-1, 1]) {
+        const g = new THREE.Sprite(this.glareMat); g.name = 'glare'; g.userData['side'] = side; g.scale.setScalar(0.7)
+        const t = new THREE.Sprite(this.tailGlowMat); t.name = 'tailglow'; t.userData['side'] = side; t.scale.setScalar(0.7)
+        const b = new THREE.Mesh(beamGeo, this.beamMat); b.name = 'beam'; b.userData['side'] = side; b.renderOrder = 5
+        this.lamps.add(g, t, b)
+      }
+      this.mesh.add(this.lamps)
+      this.placeLamps(-2.2, 2.2, 0.8, 0.65)
     }
     // The sharp camera-following shadow map draws the car's real shadow;
     // the blob decal in Game only adds a soft contact shadow under it.
@@ -369,6 +398,8 @@ export class Car {
   earnNitro = false
   /** Top speed multiplier for the area (tailwind on the salt). */
   topBonus = 1
+  /** Rivals only: extra top speed while catching up (1 = none). */
+  catchUp = 1
   /** Seconds of extra launch acceleration left. */
   launch = 0
   /** True during a powerslide (brake + steer at speed). */
@@ -399,7 +430,7 @@ export class Car {
     if (this.boosting) this.nitro = Math.max(0, this.nitro - dt / 4)
     else if (!this.earnNitro) this.nitro = Math.min(1, this.nitro + dt / 16)
     this.surge = Math.max(0, this.surge - dt)
-    const topSpeed = cfg.maxSpeed * (this.boosting ? 1.25 : this.surge > 0 ? 1.16 : 1) * this.topBonus
+    const topSpeed = cfg.maxSpeed * (this.boosting ? 1.25 : this.surge > 0 ? 1.16 : 1) * this.topBonus * this.catchUp
     this.launch = Math.max(0, this.launch - dt)
     const steerRaw = (input.left ? 1 : 0) - (input.right ? 1 : 0)
     // brake + steer at speed: a powerslide that scrubs little speed and earns nitro
@@ -679,6 +710,10 @@ export class Car {
       this.headlight.distance = 55 + level * 45
     }
     for (const m of this.headMats) m.emissiveIntensity = 1.2 + level * 5
+    this.beamMat.opacity = level * 0.07
+    this.glareMat.opacity = 0.25 + level * 0.75
+    this.tailGlowMat.opacity = 0.3 + level * 0.6
+    for (const o of this.lamps.children) if (o.name === 'beam') o.visible = level > 0.05
   }
 
   /** Slope pitch from the track tangent (applied by the game). */
@@ -790,7 +825,7 @@ export class Car {
     const avgFrontZ = frontRoots.length
       ? frontRoots.reduce((a, o) => a + centerOf(o).z, 0) / frontRoots.length
       : -1
-    if (avgFrontZ > 0) {
+    if ((avgFrontZ > 0) !== !!model.userData['turn']) {
       model.rotation.y += Math.PI
       this.mesh.updateMatrixWorld(true)
       // Spinning about the model's own pivot moves an offset body off centre
@@ -818,7 +853,7 @@ export class Car {
           if (!(m instanceof THREE.MeshStandardMaterial)) continue
           m.envMapIntensity = 1
           // the HQ model's body shell ships near-black: give it a colour that reads on a dark road
-          if (m.name === 'Material.007' || /^paint/i.test(m.name)) { m.color.set(this.paint); m.metalness = 0.45; m.roughness = 0.3; m.map = null; this.paintMats.push(m) }
+          if (m.name === 'Material.007' || /^paint/i.test(m.name)) { m.color.set(this.paint); m.metalness = 0.45; m.roughness = 0.3; if (!model.userData['tint']) m.map = null; this.paintMats.push(m) }
           // "Transmission" glass makes three.js render the whole scene a
           // second time every frame (~23 ms on a laptop GPU). Plain
           // transparency looks the same on small lamp lenses and windows.
@@ -986,6 +1021,17 @@ export class Car {
     const lo = this.mesh.worldToLocal(body.min.clone())
     const hi = this.mesh.worldToLocal(body.max.clone())
     this.flame.position.set(0, Math.min(lo.y, hi.y) + 0.3, Math.max(lo.z, hi.z) + 0.02)
+    const y0 = Math.min(lo.y, hi.y), y1 = Math.max(lo.y, hi.y)
+    this.placeLamps(Math.min(lo.z, hi.z), Math.max(lo.z, hi.z), Math.abs(hi.x - lo.x) * 0.36, y0 + (y1 - y0) * 0.42)
+  }
+
+  private placeLamps(front: number, back: number, half: number, y: number): void {
+    for (const o of this.lamps.children) {
+      const sx = (o.userData['side'] as number) * half
+      if (o.name === 'glare') o.position.set(sx, y, front - 0.05)
+      else if (o.name === 'tailglow') o.position.set(sx, y + 0.05, back + 0.05)
+      else o.position.set(sx * 0.9, y, front - 0.1)
+    }
   }
 
   /** Set speed + align momentum with the heading (seamless flight exit). */
@@ -1029,4 +1075,22 @@ export class Car {
     this.flame.visible = false
     this.braking = false
   }
+}
+
+let glowTex: THREE.Texture | null = null
+/** A soft round glow, shared by every lamp sprite. */
+function glowTexture(): THREE.Texture {
+  if (glowTex) return glowTex
+  const c = document.createElement('canvas')
+  c.width = c.height = 64
+  const g = c.getContext('2d')!
+  const r = g.createRadialGradient(32, 32, 0, 32, 32, 32)
+  r.addColorStop(0, 'rgba(255,255,255,1)')
+  r.addColorStop(0.25, 'rgba(255,255,255,0.55)')
+  r.addColorStop(1, 'rgba(255,255,255,0)')
+  g.fillStyle = r
+  g.fillRect(0, 0, 64, 64)
+  glowTex = new THREE.CanvasTexture(c)
+  glowTex.colorSpace = THREE.SRGBColorSpace
+  return glowTex
 }

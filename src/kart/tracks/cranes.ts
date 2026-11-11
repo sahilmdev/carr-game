@@ -4,8 +4,9 @@ import { GLSL_NOISE } from '../art/atmos'
 import { Mesher, place, surface } from '../art/arch'
 import { forest } from '../art/foliage'
 import type { Solid } from '../World'
+import type { Circuit } from '../Circuit'
 import type { BuildKit, TrackDef } from '../types'
-import { arrows, crates, gantry, glow, stands } from './parts'
+import { arrows, crates, drift, findGap, gantry, glow, movingDeck, stands } from './parts'
 
 /** Curtain-wall glass: mullions and spandrels laid out in world space, so any box reads as a tower. */
 function glassMaterial(tint: number): THREE.MeshStandardMaterial {
@@ -72,11 +73,16 @@ function crane(k: BuildKit, x: number, z: number, h: number, jib: number): { top
 
 const STREET = 0.5
 
-/**
- * Skyline Cranes: off the street, up the ramp and across the rooftops of a
- * half-built district, leaping the gaps between towers and running the
- * scaffolding planks. Tower cranes slew overhead; from the second lap their
- * loads swing low across the road, and on the last lap there are more of them.
+/*
+ * Skyline Cranes: never touches the street. The start is on a podium roof;
+ * down a ramp to the low roofs, a boosted leap across the avenue between two
+ * towers (or round by the service bridge), up the ramps to the high roofs,
+ * a drop across the gap to the next block, then the climb to the summit
+ * tower and a glide off its edge down to the west roofs (or the scaffolding
+ * on the half-built block, inside and lower). Tower cranes slew overhead.
+ *
+ * Lap 2: the cranes lower their loads across one lane. Last lap: the wind
+ * gets up on the roofs and pushes you sideways, harder the higher you are.
  */
 export const cranes: TrackDef = {
   id: 'cranes',
@@ -87,6 +93,7 @@ export const cranes: TrackDef = {
   shoulder: 4,
   accent: 0xffb03a,
   rails: 'steel',
+  rail: 'LR',
   road: { lines: 'highway', grime: 0x5a5650, edgeLine: 0xf0e8d0, tone: 0.95 },
   terrain: { layers: ['grass', 'aerial_sand', 'rock_pitted_mossy', 'mud_cracked_dry_03'], tile: [20, 14, 20, 16], tints: [0x9aa080, 0xb0a890, 0xa09c94, 0xa89c88] },
   far: 0x6a6660,
@@ -95,28 +102,80 @@ export const cranes: TrackDef = {
     exposure: 1.05, sun: 1.3, hemi: 0.95, bloom: 0.38, shafts: 0.6, grade: [1.12, 1.08, 0.01, 0.004, 0, 1.06, 0.98, 0.9, 0.32],
   },
   points: [
-    [0, STREET, 0],
-    [116, STREET, -2, { pad: 0 }],
-    [204, STREET, 14],
-    [276, STREET, -16],
-    [290, STREET, -80],
-    [258, 5, -126, { raised: true, rail: 'LR' }],
-    [200, 14, -150, { raised: true, rail: 'LR', deck: 'steel' }],
-    [148, 24, -184, { raised: true, rail: '' }],
-    [80, 26, -194, { raised: true, rail: '' }],
-    [22, 29, -190, { gap: true }],
-    [-30, 16, -182, { raised: true, rail: '' }],
-    [-100, 19, -160, { raised: true, rail: 'LR', deck: 'wood' }],
-    [-150, 25, -122, { raised: true, rail: 'LR', deck: 'wood' }],
-    [-172, 26, -62, { raised: true, rail: 'LR', deck: 'wood', pad: 0 }],
-    [-164, 30, -2, { gap: true }],
-    [-136, 12, 52, { raised: true, rail: 'LR' }],
-    [-96, 3, 94],
-    [-40, STREET, 114],
-    [6, STREET, 84],
-    [-34, STREET, 46],
-    [-44, STREET, 12],
+  [-170.4, 30, 284.0, { raised: true, w: 20 }],
+  [0.0, 30, 284.0, { raised: true, pad: 0 }],
+  [156.2, 30, 276.9, { raised: true, items: true }],
+  [255.6, 24, 269.8, { raised: true, deck: 'steel' }],
+  [355.0, 18, 241.4, { raised: true }],
+  [440.2, 18, 170.4, { raised: true }],
+  [480.0, 18, 71.0, { raised: true, pad: 0 }],
+  [482.0, 18, 35.0, { raised: true, rail: '', pad: 0 }],
+  [483.0, 21.3, 1.0, { gap: true }],
+  [484.0, 19.3, -23.0, { gap: true }],
+  [485.0, 17.3, -55.0, { raised: true, w: 22 }],
+  [491.3, 22, -213.0, { raised: true }],
+  [468.6, 34, -340.8, { raised: true, deck: 'steel' }],
+  [411.8, 46, -454.4, { raised: true }],
+  [312.4, 46, -489.9, { raised: true, items: true }],
+  [213.0, 46, -497.0, { raised: true, rail: '' }],
+  [191.0, 47.5, -498.0, { gap: true }],
+  [169.0, 44.5, -499.0, { gap: true }],
+  [147.0, 40.5, -500.0, { raised: true, w: 20 }],
+  [28.4, 40, -505.5, { raised: true }],
+  [-113.6, 40, -489.9, { raised: true }],
+  [-241.4, 47, -454.4, { raised: true, deck: 'steel' }],
+  [-340.8, 55, -397.6, { raised: true, deck: 'steel' }],
+  [-411.8, 62, -312.4, { raised: true, items: true }],
+  [-433.1, 62, -248.5, { raised: true, pad: 0, rail: '' }],
+  [-434.1, 63, -236.5, { gap: true, glide: true }],
+  [-436.1, 55, -186.5, { gap: true, glide: true }],
+  [-438.1, 47, -136.5, { gap: true, glide: true }],
+  [-439.1, 41, -104.5, { gap: true, glide: true }],
+  [-440.1, 36, -72.5, { raised: true, w: 28 }],
+  [-408.0, 32, 112.0, { raised: true, w: 20 }],
+  [-355.0, 30, 241.4, { raised: true }],
+  [-345.0, 24, 345.0, { raised: true, deck: 'steel' }],
+  [-262.0, 22, 382.0, { raised: true }],
+  [-200.0, 27, 322.0, { raised: true, deck: 'steel' }],
   ],
+  branches: [
+    {
+      // round the corner on the service bridge: no leap, but the long way
+      name: 'Service bridge', from: 5, to: 11, odds: 0.35,
+      points: [
+        [520, 18, 110, { raised: true, deck: 'steel', w: 14, rail: 'LR' }],
+        [560, 20, 0, { raised: true, deck: 'steel', w: 14, rail: 'LR' }],
+        [548, 21, -120, { raised: true, deck: 'steel', w: 14, rail: 'LR' }],
+      ],
+    },
+    {
+      // down the scaffolding of the half-built block: the inside line, on planks
+      name: 'Scaffolding', from: 20, to: 30, odds: 0.5,
+      points: [
+        [-168, 40, -462, { raised: true, deck: 'wood', w: 14, rail: 'LR' }],
+        [-215, 34, -390, { raised: true, deck: 'wood', w: 13, rail: 'LR' }],
+        [-262, 31, -300, { raised: true, deck: 'wood', w: 13, rail: 'LR', items: true }],
+        [-330, 30, -180, { raised: true, deck: 'wood', w: 13, rail: 'LR' }],
+        [-362, 30, -50, { raised: true, deck: 'wood', w: 13, rail: 'LR', pad: 0 }],
+        [-384, 31, 36, { raised: true, deck: 'wood', w: 14, rail: 'LR' }],
+      ],
+    },
+    {
+      // the crane lift: a crane hoists a steel deck between the low roof and
+      // the high one. Raised, it's a ramp straight up; lowered, the gate is
+      // down and you wait. Arrive as it goes green and it's the quick way up.
+      name: 'Crane lift', from: 11, to: 14, odds: 0.4,
+      points: [
+        [478, 22, -262, { raised: true, w: 14, rail: 'LR' }],
+        [462, 22, -290, { raised: true, w: 14, rail: '' }],
+        [446, 30, -318, { gap: true, w: 14 }],
+        [430, 38, -346, { gap: true, w: 14 }],
+        [414, 46, -374, { raised: true, w: 14, rail: '' }],
+        [384, 46, -428, { raised: true, w: 14, rail: 'LR', pad: 0 }],
+      ],
+    },
+  ],
+
   ground: (x, z) => fbm2(x * 0.004, z * 0.004) * 1.2 - 0.6 + smooth(700, 1100, Math.hypot(x, z + 80)) * -20,
   splat(x, z, _h, _slope, roadDist, mix, tint) {
     const lot = fbm2(x * 0.012, z * 0.012)
@@ -129,6 +188,7 @@ export const cranes: TrackDef = {
   surfaceAt: () => 'concrete',
   async build(k) {
     const { circuit: c, world: w, d, root } = k
+    const paths = c.all
     gantry(k, 'Skyline Cranes', '#ffb03a')
     stands(k, 8, 40, 1, [0xe8a03a, 0x2a3448, 0xe8e6e0, 0x3a7ab0, 0xc04a3a], 0xffb03a, 'Skyline Cranes')
     arrows(k, 0xffb03a)
@@ -137,32 +197,44 @@ export const cranes: TrackDef = {
     const blocks = new Mesher(), roofs = new Mesher(), scaff = new Mesher()
     const glass = [glassMaterial(0x8aa0b8), glassMaterial(0x9a8a7a), glassMaterial(0x7a9a9a)]
     const towers = [new Mesher(), new Mesher(), new Mesher()]
-    let runStart = -1
-    const flushRun = (a: number, b: number): void => {
-      // one building per run of rooftop road, broken into blocks every ~40 m
-      for (let i = a; i < b; i += 20) {
-        const j = Math.min(b, i + 20), p = c.samples[i]!, q = c.samples[j]!
-        const mx = (p.x + q.x) / 2, mz = (p.z + q.z) / 2, top = Math.min(p.y, q.y) - 0.6
-        const t = c.tangents[i]!, yaw = Math.atan2(-t.x, -t.z), len = Math.hypot(q.x - p.x, q.z - p.z) + 3
-        const wide = c.widths[i]! + 18
-        towers[(i / 20) % 3 | 0]!.box(wide, top - STREET, len, mx, (top + STREET) / 2, mz, 0xffffff, yaw)
-        roofs.box(wide + 0.6, 0.8, len + 0.4, mx, top + 0.1, mz, 0x6a6660, yaw)
-        // a parapet on each edge of the roof, set back from the road
-        const r = c.rights[i]!
-        for (const s of [-1, 1]) roofs.box(0.5, 1.2, len, mx + r.x * s * (wide / 2), top + 1, mz + r.z * s * (wide / 2), 0x8a847c, yaw)
-        w.addBox(mx, mz, wide / 2, len / 2, yaw, top - 1.2)
+    for (const cc of paths) {
+      let runStart = -1
+      const flushRun = (a: number, b: number): void => {
+        // one building per run of rooftop road, broken into blocks every ~40 m
+        for (let i = a; i < b; i += 20) {
+          const j = Math.min(b - 1, i + 20), p = cc.samples[i]!, q = cc.samples[j]!
+          if (j - i < 4) continue
+          const mx = (p.x + q.x) / 2, mz = (p.z + q.z) / 2, top = Math.min(p.y, q.y) - 0.6
+          const t = cc.tangents[i]!, yaw = Math.atan2(-t.x, -t.z), len = Math.hypot(q.x - p.x, q.z - p.z) + 3
+          const wide = cc.widths[i]! + 18
+          towers[(i / 20) % 3 | 0]!.box(wide, top - STREET, len, mx, (top + STREET) / 2, mz, 0xffffff, yaw)
+          roofs.box(wide + 0.6, 0.8, len + 0.4, mx, top + 0.1, mz, 0x6a6660, yaw)
+          // a parapet on each edge of the roof, set back from the road
+          const r = cc.rights[i]!
+          for (const s of [-1, 1]) {
+            // no parapet where another road crosses this roof (at a fork or a join)
+            const px = mx + r.x * s * (wide / 2), pz = mz + r.z * s * (wide / 2)
+            let crossed = false
+            for (let f = -0.5; f <= 0.5 && !crossed; f += 0.25) {
+              const qx = px + Math.sin(yaw + Math.PI) * 0 + (q.x - p.x) * f, qz = pz + (q.z - p.z) * f
+              crossed = paths.some((o) => o !== cc && o.roadAt(qx, qz, top + 3, { i: -1, lat: 0, y: 0 }))
+            }
+            if (!crossed) roofs.box(0.5, 1.2, len, px, top + 1, pz, 0x8a847c, yaw)
+          }
+          w.addBox(mx, mz, wide / 2, len / 2, yaw, top - 1.2)
+        }
       }
-    }
-    for (let i = 0; i <= c.count; i++) {
-      // only under level rooftop road: a ramp must never run into a building's side
-      const on = i < c.count && c.raised[i]! && !c.gap[i]! && c.deck[i] !== 2 && c.samples[i]!.y > 15 && Math.abs(c.tangents[i]!.y) < 0.07
-      if (on && runStart < 0) runStart = i
-      if (!on && runStart >= 0) { flushRun(runStart, i); runStart = -1 }
+      for (let i = 0; i <= cc.count; i++) {
+        // only under level rooftop road: a ramp must never run into a building's side
+        const on = i < cc.count && cc.raised[i]! && !cc.gap[i]! && cc.deck[i] !== 2 && cc.deck[i] !== 4 && cc.samples[i]!.y > 15 && Math.abs(cc.tangents[i]!.y) < 0.07
+        if (on && runStart < 0) runStart = i
+        if (!on && runStart >= 0) { flushRun(runStart, i); runStart = -1 }
+      }
     }
     towers.forEach((t, q) => { if (!t.empty) place(k, t, glass[q]!) })
     place(k, roofs, surface('concrete'))
     // scaffolding: tubes and boards under the wooden decks
-    for (let i = 0; i < c.count; i += 4) {
+    for (const c of paths) for (let i = 0; i < c.count; i += 4) {
       if (c.deck[i] !== 2 || c.gap[i]) continue
       const p = c.samples[i]!, r = c.rights[i]!, half = c.widths[i]! / 2
       for (const s of [-1, -0.33, 0.33, 1]) {
@@ -190,7 +262,7 @@ export const cranes: TrackDef = {
 
     // ── the city: towers on a grid, real brick blocks along the streets
     const city = [new Mesher(), new Mesher(), new Mesher()], cityRoofs = new Mesher()
-    for (let x = -700; x <= 760; x += 64) for (let z = -720; z <= 520; z += 64) {
+    for (let x = -1000; x <= 1000; x += 64) for (let z = -1000; z <= 800; z += 64) {
       const cx = x + (d.rand() - 0.5) * 10, cz = z + (d.rand() - 0.5) * 10
       const hx = 13 + d.rand() * 9, hz = 13 + d.rand() * 9
       if (d.roadGap(cx, cz) < Math.hypot(hx, hz) + 8 || w.blocked(cx, cz, Math.hypot(hx, hz))) continue
@@ -214,20 +286,6 @@ export const cranes: TrackDef = {
     city.forEach((t, q) => { if (!t.empty) place(k, t, glass[q]!) })
     place(k, cityRoofs, surface('concrete'))
     if (!blocks.empty) place(k, blocks, surface('concrete'))
-    const kinds = ['bk:apartment_a', 'bk:apartment_b', 'bk:factory_a'] as const
-    const fronts = new Map<string, THREE.Matrix4[]>()
-    for (let i = 0; i < c.count; i += 8) {
-      if (c.raised[i] || Math.abs(c.bends[i]!) > 0.004) continue
-      const p = c.samples[i]!, r = c.rights[i]!, side = d.rand() < 0.5 ? 1 : -1, kd = kinds[Math.floor(d.rand() * 3)]!
-      const off = side * (c.widths[i]! / 2 + 18), x = p.x + r.x * off, z = p.z + r.z * off
-      if (d.roadGap(x, z) < 14 || w.blocked(x, z, 9)) continue
-      const yaw = Math.atan2(-side * r.x, -side * r.z), s = 1.3
-      const l = fronts.get(kd) ?? []
-      l.push(trs(x, STREET - 0.1, z, yaw, s))
-      fronts.set(kd, l)
-      w.addBox(x, z, kd === 'bk:factory_a' ? 10 : 8, 6, yaw)
-    }
-    for (const [n, m] of fronts) d.prop(n as 'bk:apartment_a', m, 0, undefined, 520)
     d.prop('bk:street_lamp_01', d.spots(30, 1.5, 2.5, { clear: 1.2, test: (_x, _z, y) => y < 2 }).map((s) => trs(s.x, s.y, s.z, d.rand() * 6, 1.4)), 0.25)
     d.prop('concrete_road_barrier', d.spots(24, 2, 6, { clear: 1.8, test: (_x, _z, y) => y < 2 }).map((s) => trs(s.x, s.y, s.z, d.rand() * 6, 1)), 0.8)
     crates(d, d.spots(18, 2, 7, { clear: 1.5 }), 0xc8a060)
@@ -237,8 +295,9 @@ export const cranes: TrackDef = {
     const swingers: { top: THREE.Group; beam: THREE.Mesh; cable: THREE.Mesh; i: number; solid: Solid; lap: number; ph: number; reach: number }[] = []
     const beamGeo = new Mesher().box(1.2, 1.2, 14, 0, 0, 0, 0xc04a2a).build()
     const cableGeo = new THREE.CylinderGeometry(0.05, 0.05, 1, 4)
-    for (const [fr, lap] of [[0.34, 2], [0.62, 2], [0.48, 3]] as const) {
-      const i = Math.floor(c.count * fr), p = c.samples[i]!, r = c.rights[i]!
+    const P = cranes.points
+    for (const [pt, lap] of [[14, 2], [19, 2], [2, 3]] as const) {
+      const i = c.track(P[pt]![0], P[pt]![2], 0, c.count, P[pt]![1]), p = c.samples[i]!, r = c.rights[i]!, fr = i / c.count
       const side = lap === 3 ? -1 : 1, reach = 28
       const mx = p.x + r.x * side * reach, mz = p.z + r.z * side * reach
       const cr = crane(k, mx, mz, p.y + 34 - w.terrainAt(mx, mz), 44)
@@ -251,6 +310,44 @@ export const cranes: TrackDef = {
       w.movers.push(solid)
       swingers.push({ top: cr.top, beam, cable, i, solid, lap, ph: fr * 9, reach })
     }
+
+    // ── the jib bridge: a crane stands in the street between the two blocks and
+    // swings its jib into line across the gap. In line, you drive straight over
+    // it; swung away, you jump the gap; part way, you may land on it as it moves.
+    {
+      const g = findGap(c, 180, -498)
+      const lip = c.samples[g.i0 - 1]!, land = c.samples[g.i1 + 1]!
+      const along = Math.atan2(land.x - lip.x, land.z - lip.z)
+      const span = Math.hypot(land.x - lip.x, land.z - lip.z) + 6
+      const mx = (lip.x + land.x) / 2, mz = (lip.z + land.z) / 2
+      const jib = movingDeck(k, 10, span, 0xe8b820, 0x2a2a30, 1.4)
+      // the mast down to the street, and the slewing top
+      const mast = new Mesher(), y0 = w.terrainAt(mx, mz), top = Math.min(lip.y, land.y) - 1.6
+      for (const [a, b] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) mast.box(0.35, top - y0, 0.35, mx + a! * 1.3, (top + y0) / 2, mz + b! * 1.3, 0xe8b820)
+      for (let q = y0; q < top; q += 3) mast.bar(new THREE.Vector3(mx - 1.3, q, mz - 1.3), new THREE.Vector3(mx + 1.3, q + 3, mz + 1.3), 0.08, 0xe8b820, 4)
+      place(k, mast, surface('paint', { metal: 0.5, rough: 0.45 }))
+      w.addPost(mx, mz, 2, top - 2)
+      const cab = new THREE.Mesh(new Mesher().box(4, 3, 4, 0, -3, 0, 0x30343c).box(1.2, 14, 1.2, 0, 7, 0, 0xe8b820).build(), surface('paint', { metal: 0.5, rough: 0.45 }))
+      root.add(cab)
+      let ph = 0
+      k.onFrame((f) => {
+        ph = (ph + f.dt * (f.lap >= 2 ? 1.2 : 1)) % 15
+        // in line 6 s, swing out over 3 s, hold 3 s, back over 3 s
+        const u = ph < 6 ? 0 : ph < 9 ? (ph - 6) / 3 : ph < 12 ? 1 : 1 - (ph - 12) / 3
+        const yaw = along + 1.25 * u * u * (3 - 2 * u)
+        // which end is higher follows the swing: in line it runs down from lip to landing
+        jib.set(mx, mz, yaw, lip.y, land.y, 0, 0)
+        jib.pl.live = u < 0.95
+        cab.position.set(mx, (lip.y + land.y) / 2 + 1.5, mz)
+        cab.rotation.y = yaw
+      })
+    }
+
+    craneLift(k, c.branches[2]!)
+
+    // grit blowing across the roofs on the last lap
+    const dust = drift(k, 900, 0xc8b8a0, 0.35, 2, true)
+    dust.visible = false
 
     // warning lights on the crane tips
     const tips = swingers.map((s) => s.top)
@@ -267,7 +364,8 @@ export const cranes: TrackDef = {
         // slew back and forth; when active the hook sweeps right over the road
         const sweep = active ? Math.sin(f.time * 0.45 + s.ph) : 0.6 + Math.sin(f.time * 0.2 + s.ph) * 0.2
         // the hook's distance from the road's centre, on the crane's side
-        const L = active ? THREE.MathUtils.lerp(s.reach - 6, -c.widths[s.i]! * 0.6, (sweep + 1) / 2) : s.reach - 6 + sweep * 2
+        // never past the middle of the road: the far lane always stays open
+        const L = active ? THREE.MathUtils.lerp(s.reach - 6, c.widths[s.i]! * 0.12, (sweep + 1) / 2) : s.reach - 6 + sweep * 2
         const side = s.lap === 3 ? -1 : 1
         const hx = p.x + r.x * side * L, hz = p.z + r.z * side * L
         const drop = active ? p.y + 1.1 : p.y + 16
@@ -287,6 +385,89 @@ export const cranes: TrackDef = {
         tipLights.setMatrixAt(q, m4)
       })
       tipLights.instanceMatrix.needsUpdate = true
+      // the last lap: gusts across the roofs
+      const gusty = f.totalLaps > 1 && f.lap >= f.totalLaps
+      const g = gusty ? (0.6 + 0.4 * Math.sin(f.time * 0.9)) * Math.max(0, Math.sin(f.time * 0.31)) : 0
+      w.wind.x = g * 4.5
+      w.wind.z = g * -1.5
+      dust.visible = gusty
     })
   },
+}
+
+/**
+ * The crane lift: a steel deck hung from a crane across the gap on the lift
+ * road. Lowered, it lies flat at the low roof and ends in thin air; raised,
+ * it's a ramp from the low roof up to the high one. Up for 7 s in every 15
+ * (6 in 13 from lap 2), with a lamp that goes green while it's up and
+ * flashes before it drops. A boom gate before the lip stays down unless
+ * there's time to get across, so you wait for the lift rather than fall.
+ */
+function craneLift(k: BuildKit, lift: Circuit): void {
+  const { world: w, root } = k
+  const g = findGap(lift, 438, -332)
+  const lip = lift.samples[Math.max(0, g.i0 - 1)]!, land = lift.samples[Math.min(lift.count - 1, g.i1 + 1)]!
+  const yaw = Math.atan2(land.x - lip.x, land.z - lip.z)
+  const span = Math.hypot(land.x - lip.x, land.z - lip.z) + 4
+  const mx = (lip.x + land.x) / 2, mz = (lip.z + land.z) / 2
+  const deck = movingDeck(k, lift.widths[g.i0]! + 0.6, span, 0x5a6068, 0xe8b820, 1.2)
+  const hang = crane(k, mx + Math.cos(yaw) * 22, mz - Math.sin(yaw) * 22, Math.max(lip.y, land.y) + 30, 34)
+  // the hoist cables from the jib down to each end of the deck
+  const cableMat = new THREE.MeshStandardMaterial({ color: 0x2a2c30, roughness: 0.6, metalness: 0.6 })
+  const cables = [0, 1].map(() => { const m = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 1, 5), cableMat); root.add(m); return m })
+  const lampMat = glow(0.3, 3, 0.4)
+  for (const e of [lip, land]) {
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.6, 8, 6), lampMat)
+    lamp.position.set(e.x + Math.cos(yaw) * 9, e.y + 4.5, e.z - Math.sin(yaw) * 9)
+    root.add(lamp)
+    w.addPost(lamp.position.x, lamp.position.z, 0.3)
+  }
+  // a boom gate at the lip: it drops whenever the deck won't be up by the
+  // time you're over it, so you wait for the lift rather than drive off
+  const gi = Math.max(0, g.i0 - 6), gp = lift.samples[gi]!, gt = lift.tangents[gi]!, gr = lift.rights[gi]!
+  const gyaw = Math.atan2(-gt.x, -gt.z), ghalf = lift.widths[gi]! / 2
+  const arm = new THREE.Group()
+  arm.position.set(gp.x + gr.x * (ghalf + 0.6), gp.y + 1.1, gp.z + gr.z * (ghalf + 0.6))
+  arm.rotation.y = gyaw
+  const armMesh = new THREE.Mesh(new Mesher().box(ghalf * 2 + 0.8, 0.35, 0.35, -(ghalf + 0.4), 0, 0, 0xe8e8e8).box(1.2, 0.36, 0.36, -2, 0, 0, 0xd83a2a).box(1.2, 0.36, 0.36, -5, 0, 0, 0xd83a2a).box(1.2, 0.36, 0.36, -8, 0, 0, 0xd83a2a).box(1.2, 0.36, 0.36, -11, 0, 0, 0xd83a2a).build(), surface('paint'))
+  const armPivot = new THREE.Group()
+  armPivot.add(armMesh)
+  arm.add(armPivot)
+  root.add(arm)
+  const gate: Solid = { x: gp.x, z: gp.z, r: ghalf + 1, hx: ghalf + 1, hz: 0.5, cos: Math.cos(gyaw), sin: Math.sin(gyaw), top: -1e6 }
+  w.movers.push(gate)
+  w.addPost(arm.position.x, arm.position.z, 0.5)
+  let armA = 0
+  const v = new THREE.Vector3()
+  let ph = 0
+  k.onFrame((f) => {
+    const cycle = f.lap >= 2 ? 13 : 15
+    ph = (ph + f.dt) % cycle
+    // down 4 s, up over 2 s, held 7 s (6 from lap 2), down over 2 s
+    const held = f.lap >= 2 ? 6 : 7
+    const u = ph < cycle - held - 4 ? 0 : ph < cycle - held - 2 ? (ph - (cycle - held - 4)) / 2 : ph < cycle - 2 ? 1 : 1 - (ph - (cycle - 2)) / 2
+    const e = u * u * (3 - 2 * u)
+    const front = lip.y + (land.y - lip.y) * e
+    deck.set(mx, mz, yaw, lip.y, front, 0, 0)
+    hang.top.rotation.y = Math.atan2(-(mz - hang.mast.z), mx - hang.mast.x)
+    // cables from the jib over the deck down to each end
+    for (let q = 0; q < 2; q++) {
+      const ex = mx + Math.sin(yaw) * span * (q ? 0.3 : -0.3), ez = mz + Math.cos(yaw) * span * (q ? 0.3 : -0.3)
+      const ey = (lip.y + front) / 2 + (front - lip.y) * (q ? 0.3 : -0.3)
+      const top = hang.mast.y
+      v.set(ex, (ey + top) / 2, ez)
+      cables[q]!.position.copy(v)
+      cables[q]!.scale.set(1, top - ey, 1)
+    }
+    const upFor = u >= 1 ? cycle - 2 - ph : 0
+    const warn = u >= 1 && upFor < 1.5
+    lampMat.color.setRGB(u >= 1 ? (warn && Math.sin(f.time * 14) > 0 ? 5 : 0.3) : 4, u >= 1 ? (warn ? 0.6 : 3) : 0.4, 0.3)
+    // the gate is open from just before the deck is fully up until well
+    // before it drops: anyone through the gate makes it over
+    const open = (u > 0.7 && ph < cycle - held - 2 + 0.1) || (u >= 1 && upFor > 4.4)
+    armA += ((open ? 1.45 : 0) - armA) * Math.min(1, f.dt * 5)
+    armPivot.rotation.z = -armA
+    gate.top = armA < 0.6 ? gp.y + 6 : -1e6
+    lift.join!.odds = 0.4
+  })
 }

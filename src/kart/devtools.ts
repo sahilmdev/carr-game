@@ -1,3 +1,4 @@
+import * as THREE from 'three'
 /* Dev-only helpers for checking tracks from the console. Never shipped. */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export function install(app: unknown): void {
@@ -47,6 +48,177 @@ export function install(app: unknown): void {
     const res = await fetch(`/__shot?name=${encodeURIComponent(name)}`, { method: 'POST', body: cv.toDataURL('image/jpeg', 0.8) })
     k.loop.start()
     return res.text()
+  }
+  /**
+   * Anything you can see sitting on the road: looks straight down onto every
+   * road from just above car height and lists what it hits, grouped by object.
+   */
+  w.__clutter = async (id: string) => {
+    await load(id)
+    const probe = { i: -1, lat: 0, y: 0 }
+    const v = new THREE.Vector3(), m4 = new THREE.Matrix4(), box = new THREE.Box3()
+    const groups = new Map<string, { name: string; type: string; color: string; n: number; at: number[][] }>()
+    // a point sitting on a road, between just above the surface and car height
+    const onRoad = (x: number, y: number, z: number): number[] | null => {
+      for (let b = 0; b < k.circuit.all.length; b++) {
+        const c = k.circuit.all[b]
+        if (!c.roadAt(x, z, y + 0.2, probe) || probe.i < 0 || c.gap[probe.i]) continue
+        if (Math.abs(probe.lat) > c.widths[probe.i] / 2 - 0.8) continue
+        const h = y - probe.y
+        if (h > 0.45 && h < 3) return [b, +(probe.i / c.count).toFixed(3), Math.round(x), +h.toFixed(1), Math.round(z)]
+      }
+      return null
+    }
+    const note = (o: any, at: number[]) => {
+      const mat = Array.isArray(o.material) ? o.material[0] : o.material
+      const g = groups.get(o.uuid) ?? { name: o.name || o.parent?.name || '', type: o.type, color: mat?.color ? '#' + mat.color.getHexString() : '', n: 0, at: [] as number[][] }
+      g.n++
+      if (g.at.length < 4) g.at.push(at)
+      groups.set(o.uuid, g)
+    }
+    const targets: any[] = []
+    k.root.traverse((o: any) => { if ((o.isMesh || o.isInstancedMesh) && o.visible) targets.push(o) })
+    let work = 0
+    for (const o of targets) {
+      o.updateMatrixWorld(true)
+      const pos = o.geometry?.attributes?.position
+      if (!pos) continue
+      if (o.isInstancedMesh) {
+        if (!o.geometry.boundingBox) o.geometry.computeBoundingBox()
+        for (let q = 0; q < o.count; q++) {
+          o.getMatrixAt(q, m4)
+          box.copy(o.geometry.boundingBox).applyMatrix4(m4).applyMatrix4(o.matrixWorld)
+          if (box.max.x - box.min.x > 80) continue
+          v.set((box.min.x + box.max.x) / 2, box.min.y, (box.min.z + box.max.z) / 2)
+          const at = onRoad(v.x, Math.max(box.min.y, v.y), v.z) ?? onRoad(v.x, (box.min.y + box.max.y) / 2, v.z)
+          if (at) note(o, at)
+        }
+      } else {
+        const step = Math.max(1, Math.floor(pos.count / 40000))
+        for (let q = 0; q < pos.count; q += step) {
+          v.fromBufferAttribute(pos, q).applyMatrix4(o.matrixWorld)
+          const at = onRoad(v.x, v.y, v.z)
+          if (at) note(o, at)
+        }
+      }
+      if (++work % 20 === 0) await new Promise((r) => setTimeout(r, 0))
+    }
+    return [...groups.values()].sort((a, b) => b.n - a.n)
+  }
+  /**
+   * Things you'd drive straight through: visible objects standing on or just
+   * beside a road, at car height, with nothing solid there to stop you.
+   */
+  w.__ghosts = async (id: string) => {
+    await load(id)
+    const wd = k.world, probe = { i: -1, lat: 0, y: 0 }, hit = { nx: 0, nz: 0, depth: 0 }
+    const v = new THREE.Vector3(), m4 = new THREE.Matrix4(), box = new THREE.Box3()
+    const groups = new Map<string, { name: string; color: string; n: number; at: number[][] }>()
+    // a point beside or on a road, at car height above it: which road, how far out, how high
+    const near = (x: number, y: number, z: number): number[] | null => {
+      for (let b = 0; b < k.circuit.all.length; b++) {
+        const c = k.circuit.all[b]
+        const list = c.near(x, z)
+        if (!list) continue
+        let i = -1, bd = 1e9
+        for (const j of list) { const q = c.samples[j]; const dd = (q.x - x) ** 2 + (q.z - z) ** 2 + ((q.y - y) * 3) ** 2; if (dd < bd) { bd = dd; i = j } }
+        if (i < 0) continue
+        const s = c.samples[i], r = c.rights[i], t = c.tangents[i]
+        if (c.gap[i]) continue
+        const lat = Math.abs((x - s.x) * r.x + (z - s.z) * r.z), along = Math.abs((x - s.x) * t.x + (z - s.z) * t.z)
+        const out = lat - c.widths[i] / 2, h = y - s.y
+        if (along > 3 || out > 2.5 || h < 0.5 || h > 2.6) continue
+        // edges with a rail are guarded anyway
+        if (out > -0.6 && ((x - s.x) * r.x + (z - s.z) * r.z > 0 ? c.railR[i] : c.railL[i])) continue
+        return [b, +(i / c.count).toFixed(3), Math.round(x), +h.toFixed(1), Math.round(z), +out.toFixed(1)]
+      }
+      return null
+    }
+    const solidAt = (x: number, y: number, z: number) => wd.collide(x, z, y, 0.6, hit) || wd.blocked(x, z, 0.6)
+    const note = (o: any, at: number[]) => {
+      const mat = Array.isArray(o.material) ? o.material[0] : o.material
+      const g = groups.get(o.uuid) ?? { name: o.name || o.parent?.name || '', color: mat?.color ? '#' + mat.color.getHexString() : '', n: 0, at: [] as number[][] }
+      g.n++
+      if (g.at.length < 4) g.at.push(at)
+      groups.set(o.uuid, g)
+    }
+    const targets: any[] = []
+    k.root.traverse((o: any) => {
+      if (!(o.isMesh || o.isInstancedMesh) || !o.visible) return
+      const mat = Array.isArray(o.material) ? o.material[0] : o.material
+      // see-through glow, water and road decals are not things you hit
+      if (mat?.transparent || mat?.blending === THREE.AdditiveBlending || o.renderOrder > 0) return
+      targets.push(o)
+    })
+    let work = 0
+    for (const o of targets) {
+      o.updateMatrixWorld(true)
+      const pos = o.geometry?.attributes?.position
+      if (!pos) continue
+      if (o.isInstancedMesh) {
+        if (!o.geometry.boundingBox) o.geometry.computeBoundingBox()
+        for (let q = 0; q < o.count; q++) {
+          o.getMatrixAt(q, m4)
+          box.copy(o.geometry.boundingBox).applyMatrix4(m4).applyMatrix4(o.matrixWorld)
+          if (box.max.x - box.min.x > 60 || box.max.y - box.min.y < 0.8) continue
+          v.set((box.min.x + box.max.x) / 2, box.min.y + 1.2, (box.min.z + box.max.z) / 2)
+          const at = near(v.x, v.y, v.z)
+          if (at && !solidAt(v.x, v.y, v.z)) note(o, at)
+        }
+      } else {
+        const step = Math.max(1, Math.floor(pos.count / 30000))
+        for (let q = 0; q < pos.count; q += step) {
+          v.fromBufferAttribute(pos, q).applyMatrix4(o.matrixWorld)
+          const at = near(v.x, v.y, v.z)
+          if (at && !solidAt(v.x, v.y, v.z)) note(o, at)
+        }
+      }
+      if (++work % 3 === 0) await new Promise((r) => setTimeout(r, 0))
+    }
+    void probe
+    return [...groups.values()].sort((a, b) => b.n - a.n)
+  }
+  /**
+   * A race played with items in use, rendering every few frames, watching
+   * the picture for black or near-black frames and noting what was going on.
+   */
+  w.__dark = async (id: string, secs = 60) => {
+    await load(id)
+    k.noIntro = true
+    k.loop.stop()
+    await k.startRace(3, 'medium')
+    const Rival = k.rivals[0].constructor
+    const ap = new Rival(k.player, { name: 'AP', pace: 1, mistakes: 0, bold: 0.4, color: 0, car: 'rotor' }, 'hard', Math.random)
+    const dt = 1 / 60
+    k.driver = () => { ap.drive(dt, 0); return { ...ap.input, item: !!k.player.item && Math.random() < 0.04 } }
+    const cv = document.createElement('canvas')
+    cv.width = 32; cv.height = 18
+    const g = cv.getContext('2d', { willReadFrequently: true })!
+    const src = k.gfx.renderer.domElement
+    let T = 0, n = 0, chunk = performance.now()
+    const dark: any[] = [], log: number[] = []
+    while (T < secs) {
+      k.update(dt, T); T += dt
+      if (++n % 10 !== 0) continue
+      k.post.render(dt)
+      g.drawImage(src, 0, 0, 32, 18)
+      const d = g.getImageData(0, 0, 32, 18).data
+      let sum = 0, black = 0
+      for (let i = 0; i < d.length; i += 4) { const l = d[i]! + d[i + 1]! + d[i + 2]!; sum += l; if (l < 12) black++ }
+      const avg = sum / (d.length / 4) / 3
+      log.push(Math.round(avg))
+      if (avg < 16 || black > 280) {
+        const p = k.car.position, c = k.gfx.camera.position
+        let nanMat = ''
+        k.root.traverse((o: any) => { const m = o.material; if (!nanMat && m?.color && !Number.isFinite(m.color.r + m.color.g + m.color.b)) nanMat = o.type + ':' + (o.name || '') })
+        dark.push([+T.toFixed(1), Math.round(avg), black, [Math.round(p.x), Math.round(p.y), Math.round(p.z)], [Math.round(c.x), Math.round(c.y), Math.round(c.z)], k.player.item, k.player.air, Number.isFinite(c.x + c.y + c.z), nanMat, k.gfx.renderer.getPixelRatio()])
+      }
+      if (performance.now() - chunk > 300) { await new Promise((r) => setTimeout(r, 0)); chunk = performance.now() }
+    }
+    k.driver = null
+    k.exitRace()
+    k.loop.start()
+    return { frames: log.length, dark: dark.slice(0, 25), darkN: dark.length, low: Math.min(...log), mean: Math.round(log.reduce((a, b) => a + b, 0) / log.length) }
   }
   /** Anything solid on the road? */
   w.__clear = async (id: string) => {
@@ -142,6 +314,29 @@ export function install(app: unknown): void {
     return out
   }
   /** A whole race at top speed, the player driven by a rival's brain. */
+  /** A contact sheet: views from the driver's seat at `n` points round a track, saved as one JPEG. */
+  w.__sheet = async (id: string, n = 12, name?: string, from = 0, to = 1) => {
+    await w.__look(id, 0)
+    k.loop.stop()
+    const c = k.circuit, W = 400, H = 260, cols = 4, rows = Math.ceil(n / cols)
+    const sh = document.createElement('canvas')
+    sh.width = W * cols; sh.height = H * rows
+    const g = sh.getContext('2d')!
+    for (let q = 0; q < n; q++) {
+      const fr = from + ((q + 0.5) / n) * (to - from), i = Math.floor(c.count * fr) % c.count
+      const p = c.samples[i], t = c.tangents[i], cam = k.gfx.camera
+      cam.position.set(p.x - t.x * 6, p.y + 2.3, p.z - t.z * 6)
+      const a = c.samples[(i + 12) % c.count]
+      cam.lookAt(a.x, a.y + 1.2, a.z)
+      for (let f = 0; f < 2; f++) k.post.render(1 / 60)
+      g.drawImage(k.post.renderer.domElement, (q % cols) * W, Math.floor(q / cols) * H, W, H)
+      g.fillStyle = '#ff0'; g.font = 'bold 22px sans-serif'
+      g.fillText(fr.toFixed(3), (q % cols) * W + 8, Math.floor(q / cols) * H + 26)
+    }
+    k.loop.start()
+    await fetch(`/__shot?name=${encodeURIComponent(name ?? 'sheet_' + id)}`, { method: 'POST', body: sh.toDataURL('image/jpeg', 0.75) })
+    return 'ok'
+  }
   w.__race = async (id: string, opts: { laps?: number; diff?: string } = {}) => {
     await load(id)
     k.noIntro = true
