@@ -18,9 +18,9 @@ export interface RoadControl { mat: THREE.MeshStandardMaterial; wet: { value: nu
 export function buildBase(def: TrackDef, c: Circuit, w: World, root: THREE.Group): Base {
   const road = buildRoad(def, c, root)
   for (const p of c.all) {
-    if (p !== c) buildRoad(def, p, root, road)
-    buildVerge(def, p, root)
-    buildRails(def, p, root)
+    if (p !== c) buildRoad(def, p, root, road, c.all)
+    buildVerge(def, p, root, c.all)
+    buildRails(def, p, root, c.all)
     buildPads(p, root)
     if ((def.piers ?? 'concrete') === 'concrete') buildSupports(p, w, root)
   }
@@ -144,7 +144,60 @@ const ROAD_MAP = /* glsl */ `
   }
 `
 
-function buildRoad(def: TrackDef, c: Circuit, root: THREE.Group, shared?: RoadControl): RoadControl {
+/**
+ * Where a side road runs onto another road (its two ends, at a fork and a
+ * join), is this point on that other road's surface? The side road then
+ * tucks under it, so the junction reads as one piece of tarmac.
+ */
+function onOther(c: Circuit, all: Circuit[] | undefined, x: number, y: number, z: number): boolean {
+  return !Number.isNaN(otherY(c, all, x, y, z))
+}
+/** The other road's surface height at this point, or NaN when there's none. */
+function otherY(c: Circuit, all: Circuit[] | undefined, x: number, y: number, z: number): number {
+  if (!all) return NaN
+  for (const o of all) {
+    if (o === c || !o.roadAt(x, z, y + 1, _probe) || _probe.i < 0) continue
+    if (Math.abs(_probe.lat) < o.widths[_probe.i]! / 2 + 0.4 && Math.abs(_probe.y - y) < 1.2) return _probe.y
+  }
+  return NaN
+}
+
+/**
+ * A side road's height correction at each sample, so its ends meet the road
+ * they join flush: no lip, no step. Blended over the last ~20 m.
+ */
+function joinLift(c: Circuit, all: Circuit[] | undefined): Float32Array {
+  const lift = new Float32Array(c.count)
+  if (!all || !c.join) return lift
+  const RUN = 10
+  for (const dir of [1, -1]) {
+    // walk in from this end to the first sample whose centre is off the other road
+    let j = dir > 0 ? 0 : c.count - 1
+    while (j >= 0 && j < c.count && onOther(c, all, c.samples[j]!.x, c.samples[j]!.y, c.samples[j]!.z)) j += dir
+    // the other road's height just inside its edge, beside that sample
+    const back = j - dir
+    if (back < 0 || back >= c.count) continue
+    const p = c.samples[back]!, oy = otherY(c, all, p.x, p.y, p.z)
+    if (Number.isNaN(oy)) continue
+    const d = oy - p.y
+    for (let q = 0; q <= RUN; q++) {
+      const k = back + dir * q
+      if (k < 0 || k >= c.count) break
+      lift[k] = lift[k]! + d * (1 - q / RUN)
+    }
+    for (let k = back; k >= 0 && k < c.count; k -= dir) lift[k] = d
+  }
+  return lift
+}
+const _probe = { i: -1, lat: 0, y: 0 }
+
+/** Within a few samples of a jump's gap: the road's broken end, earth not concrete. */
+function nearGap(c: Circuit, k: number): boolean {
+  for (let q = -3; q <= 3; q++) { const j = k + q; if (j >= 0 && j < c.count && c.gap[j]) return true }
+  return false
+}
+
+function buildRoad(def: TrackDef, c: Circuit, root: THREE.Group, shared?: RoadControl, all?: Circuit[]): RoadControl {
   const n = c.count, style = def.road ?? {}, last = c.closed ? n : n - 1
   const pos: number[] = [], uv: number[] = [], info: number[] = [], idx: number[] = [], road: number[] = []
   const side: number[] = [], sideIdx: number[] = []
@@ -158,6 +211,7 @@ function buildRoad(def: TrackDef, c: Circuit, root: THREE.Group, shared?: RoadCo
     line[i] = s / 29
   }
   const earth = new THREE.Color(def.road?.grime ?? 0x5a5044).multiplyScalar(0.55).getHex()
+  const lift = shared ? joinLift(c, all) : null
   let along = 0
   // a half-pipe or a twist needs the road curved across: more columns
   const COLS = c.pipe.some((v) => v > 0) || c.roll.some((v) => v !== 0) ? 9 : 3
@@ -168,6 +222,12 @@ function buildRoad(def: TrackDef, c: Circuit, root: THREE.Group, shared?: RoadCo
     const kerb = kerbs && !c.raised[k] ? THREE.MathUtils.smoothstep(Math.abs(c.bends[k]!), 0.0035, 0.0065) : 0
     for (let q = 0; q < COLS; q++) {
       const u = q / (COLS - 1), lat = (u * 2 - 1) * half, v = edge(c, k, lat, 0.02)
+      if (lift) {
+        v.y += lift[k]!
+        // lying on the other road: just under its surface, so it shows through
+        const oy = otherY(c, all, v.x, v.y, v.z)
+        if (!Number.isNaN(oy)) v.y = Math.min(v.y, oy - 0.04)
+      }
       pos.push(v.x, v.y, v.z)
       road.push(lat, along)
       uv.push(u, along / 10)
@@ -178,11 +238,13 @@ function buildRoad(def: TrackDef, c: Circuit, root: THREE.Group, shared?: RoadCo
       const o = i * COLS
       for (let q = 0; q < COLS - 1; q++) idx.push(o + q, o + q + 1, o + q + COLS, o + q + 1, o + q + COLS + 1, o + q + COLS)
     }
-    const d = c.raised[k] ? 1.5 : 0.8
+    // a twisting road keeps a thin edge: a deep one swells out like a hull as it turns over
+    const d = c.roll[k] ? 0.3 : c.raised[k] ? 1.5 : 0.8
     const a1 = edge(c, k, -half, -d * 0.5), a2 = edge(c, k, -half + 1.2, -d), b2 = edge(c, k, half - 1.2, -d), b1 = edge(c, k, half, -d * 0.5)
+    if (lift) for (const v of [a, b, a1, a2, b2, b1]) v.y += lift[k]!
     side.push(a.x, a.y, a.z, a1.x, a1.y, a1.z, a2.x, a2.y, a2.z, b2.x, b2.y, b2.z, b1.x, b1.y, b1.z, b.x, b.y, b.z)
     // a bridge shows concrete; a road on the ground shows earth where a hillside drops away under it
-    const tone = c.deck[k] === 2 ? 0x4a3524 : c.deck[k] === 3 ? 0xbfd8e6 : c.raised[k] ? 0x8d9096 : earth
+    const tone = c.deck[k] === 2 ? 0x4a3524 : c.deck[k] === 3 ? 0xbfd8e6 : c.raised[k] && !nearGap(c, k) ? 0x8d9096 : earth
     const cc = new THREE.Color(tone)
     for (let q = 0; q < 6; q++) col.push(cc.r, cc.g, cc.b)
     if (i < last && !c.gap[k]) for (let q = 0; q < 5; q++) { const o = i * 6 + q; sideIdx.push(o, o + 6, o + 1, o + 1, o + 6, o + 7) }
@@ -253,7 +315,7 @@ function addUnderside(side: number[], col: number[], sideIdx: number[], root: TH
 }
 
 /** A soft band of gravel where the road meets the ground. */
-function buildVerge(def: TrackDef, c: Circuit, root: THREE.Group): void {
+function buildVerge(def: TrackDef, c: Circuit, root: THREE.Group, all?: Circuit[]): void {
   const n = c.count, W = 3.4, last = c.closed ? n : n - 1
   const pos: number[] = [], uv: number[] = [], idx: number[] = []
   let along = 0
@@ -265,7 +327,10 @@ function buildVerge(def: TrackDef, c: Circuit, root: THREE.Group): void {
       uv.push(0, along, 1, along)
     }
     along += 2
-    if (i < last && !c.raised[k] && !c.gap[k]) {
+    // no gravel strip laid across another road where this one meets it
+    const k2 = (i + 1) % n
+    const crossing = c.join !== null && [k, k2].some((j) => [-1, 1].some((sd) => { const v = edge(c, j, sd * c.widths[j]! / 2, 0); return onOther(c, all, v.x, v.y, v.z) }))
+    if (i < last && !c.raised[k] && !c.gap[k] && !crossing) {
       const o = i * 4
       idx.push(o, o + 4, o + 1, o + 1, o + 4, o + 5, o + 2, o + 3, o + 6, o + 3, o + 7, o + 6)
     }
@@ -295,12 +360,18 @@ function buildVerge(def: TrackDef, c: Circuit, root: THREE.Group): void {
   root.add(m)
 }
 
-function buildRails(def: TrackDef, c: Circuit, root: THREE.Group): void {
+function buildRails(def: TrackDef, c: Circuit, root: THREE.Group, all?: Circuit[]): void {
   const style = def.rails ?? 'steel'
   if (style === 'none') return
   const posts = new Mesher()
   const beam = style === 'wood' ? 0x5a4029 : 0xb4b9c0
-  for (const [flag, sign] of [[c.railL, -1], [c.railR, 1]] as const) {
+  for (const [flag0, sign] of [[c.railL, -1], [c.railR, 1]] as const) {
+    // never a rail standing across another road (where a fork leaves or a join comes in)
+    const flag = flag0.map((on, k) => {
+      if (!on || !all) return on
+      const e = edge(c, k, sign * (c.widths[k]! / 2 - 0.15), 0)
+      return Number.isNaN(otherY(c, all, e.x, e.y, e.z))
+    })
     const pos: number[] = [], idx: number[] = []
     const rows = style === 'wood' ? [[0.5, 0.72], [1.02, 1.24]] : [[0.56, 0.98]]
     const n = c.count, last = c.closed ? n : n - 1

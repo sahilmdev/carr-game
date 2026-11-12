@@ -29,7 +29,13 @@ const LANES = [0, 3.5, -3.5, 6, -6]
 
 export type Difficulty = 'easy' | 'medium' | 'hard'
 // how much of the road's safe speed a driver uses: the player found medium far too slow
-const LEVEL: Record<Difficulty, number> = { easy: 0.9, medium: 1.0, hard: 1.07 }
+const LEVEL: Record<Difficulty, number> = { easy: 0.88, medium: 0.97, hard: 1.06 }
+// how hard a rival behind you pushes to catch up: cornering (band) and extra top speed (boost)
+const CATCH: Record<Difficulty, { band: number; boost: number }> = {
+  easy: { band: 0.05, boost: 0.05 },
+  medium: { band: 0.1, boost: 0.11 },
+  hard: { band: 0.15, boost: 0.18 },
+}
 
 /** A simulated driver: presses the same pedals the player does. */
 export class Rival {
@@ -45,7 +51,9 @@ export class Rival {
   private scanT = 0
   /** Something across the whole road ahead: wait for it. */
   private hold = 0
-  private readonly level: number
+  /** Share of the road's safe speed this driver uses (set by difficulty). */
+  level: number
+  private readonly catch_: { band: number; boost: number }
   input: InputState = { accelerate: true, brake: false, left: false, right: false, nitro: false }
   /** Driving off the road on purpose (a bold cut across a corner). */
   mistakesMade = 0
@@ -60,6 +68,7 @@ export class Rival {
 
   constructor(readonly racer: Racer, readonly d: Driver, difficulty: Difficulty, private readonly rand: () => number) {
     this.level = LEVEL[difficulty]
+    this.catch_ = CATCH[difficulty]
     this.lane = (rand() - 0.5) * 8
     this.laneTo = this.lane
   }
@@ -233,11 +242,11 @@ export class Rival {
     // how fast this driver dares go, with a little help or hindrance so the
     // pack stays close to the player
     // leaderGap > 0: the player is ahead by that many metres. Behind, a rival
-    // pushes harder in the bends and gets a little extra top speed (up to
-    // ~20 % a lap's worth back); far ahead of the player it eases off a touch.
-    const band = THREE.MathUtils.clamp(leaderGap / 180, -0.05, 0.16)
+    // pushes harder in the bends and gets a little extra top speed (how much
+    // depends on the difficulty); far ahead of the player it eases off a touch.
+    const band = THREE.MathUtils.clamp(leaderGap / 180, -0.05, this.catch_.band)
     const pace = this.d.pace * this.level * (1 + band)
-    car.catchUp = 1 + THREE.MathUtils.clamp(leaderGap / 500, -0.03, 0.2)
+    car.catchUp = 1 + THREE.MathUtils.clamp(leaderGap / 500, -0.03, this.catch_.boost)
     // a jump coming: everything it's got, or it falls short
     // (but a real bend on the way to it still needs braking for)
     const bendLimit = Math.min(90, Math.sqrt(25 / Math.max(Math.abs(c.bends[ai]!), 0.0015)))

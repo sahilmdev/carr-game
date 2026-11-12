@@ -54,7 +54,7 @@ export const TRACKS: TrackInfo[] = [
   { id: 'blossom', name: 'Blossom Pass', blurb: 'Red gates, cherry trees and long drifts over a mountain at dusk.', tint: ['#ff8ab4', '#6a2a54'], built: true },
   { id: 'neon', name: 'Neon City', blurb: 'Wet streets and an expressway. The last lap goes dark.', tint: ['#ff3fb4', '#1a0f4a'], built: true },
   { id: 'deep', name: 'Deep Blue', blurb: 'A glass tunnel through coral, wrecks and something huge. The power is failing.', tint: ['#2fd6d0', '#063a4e'], built: true },
-  { id: 'goldrush', name: 'Gold Rush Line', blurb: 'Boomtown, trestle and mine. The train crosses the road, and it will not stop.', tint: ['#e8a03a', '#5a2413'], built: true },
+  { id: 'volcano', name: 'Volcano Run', blurb: 'Up to the crater rim and down through the lava rivers. The mountain wakes on the last lap.', tint: ['#ff5a1f', '#3a0e06'], built: true },
   { id: 'bobsleigh', name: 'Bobsleigh Peak', blurb: 'Banked ice, a leap over the ravine, and the cog railway back up.', tint: ['#d9ecff', '#4a6fd0'], built: true },
   { id: 'sky', name: 'Sky Islands', blurb: 'A glass highway above the clouds, and leaps across open air.', tint: ['#8fd6ff', '#f0a070'], built: true },
   { id: 'carnival', name: 'Midnight Carnival', blurb: 'The road is the rollercoaster.', tint: ['#ffd24a', '#40106a'], built: true },
@@ -64,6 +64,7 @@ export const TRACKS: TrackInfo[] = [
   { id: 'manor', name: 'Hollow Manor', blurb: 'Through the rooms and out of the roof.', tint: ['#8a7ad0', '#1c1630'], built: true },
   { id: 'galleon', name: 'Ghost Galleon Bay', blurb: 'A midnight race through the decks of sunken ships.', tint: ['#4ad0b0', '#0c2030'], built: true },
   { id: 'solar', name: 'Solar Crown', blurb: 'A gold road skimming the surface of a star.', tint: ['#ffcf4a', '#a02a08'], built: true },
+  { id: 'storm', name: 'Storm Coast', blurb: 'Cliffs, a lighthouse and the sea bridge. The storm builds every lap.', tint: ['#7ab4d8', '#141c2a'], built: true },
 ]
 
 /** The original full journey through every biome. */
@@ -75,9 +76,9 @@ export interface CupInfo { id: string; name: string; tagline: string; color: str
 
 export const CUPS: CupInfo[] = [
   { id: 'comet', name: 'Comet Cup', tagline: 'Places you know, pushed further. Learn to drift, cut and recover.', color: '#ff7a3a', races: ['bay', 'jungle', 'blossom', 'neon'] },
-  { id: 'nova', name: 'Nova Cup', tagline: 'The road stops being a road: trains, ice and tunnels.', color: '#25d9ff', races: ['deep', 'goldrush', 'bobsleigh', 'sky'] },
+  { id: 'nova', name: 'Nova Cup', tagline: 'The road stops being a road: lava, ice and open air.', color: '#25d9ff', races: ['deep', 'volcano', 'bobsleigh', 'sky'] },
   { id: 'eclipse', name: 'Eclipse Cup', tagline: 'Built by people, and falling apart around you.', color: '#c05cff', races: ['carnival', 'dam', 'cranes', 'mars'] },
-  { id: 'supernova', name: 'Supernova Cup', tagline: 'Haunted, sunken and burning, then the whole journey.', color: '#ffcf4a', races: ['manor', 'galleon', 'solar', 'tour'] },
+  { id: 'supernova', name: 'Supernova Cup', tagline: 'Haunted, sunken and burning, then into the storm.', color: '#ffcf4a', races: ['manor', 'galleon', 'solar', 'storm'] },
 ]
 
 export const trackById = (id: string): TrackInfo => (id === GRAND_TOUR.id ? GRAND_TOUR : TRACKS.find((t) => t.id === id)!)

@@ -215,14 +215,34 @@ export class World {
     // nor up into the flight path over a jump
     for (const c of this.circuit.all) for (let s = 0; s < c.count; s++) {
       if (!c.raised[s] || c.tunnel[s]) continue
-      const under = c.gap[s] ? 5 : 1.2
+      const gap = !!c.gap[s]
+      const under = gap ? 5 : 1.2
       const p = c.samples[s]!, half = c.widths[s]! / 2 + 2
-      const i0 = Math.max(0, Math.floor((p.x - half - this.x0) / CELL)), i1 = Math.min(this.nx - 1, Math.ceil((p.x + half - this.x0) / CELL))
-      const j0 = Math.max(0, Math.floor((p.z - half - this.z0) / CELL)), j1 = Math.min(this.nz - 1, Math.ceil((p.z + half - this.z0) / CELL))
+      // under a jump the ground falls away in a ragged, sloping hollow, not a
+      // neat box-shaped trench
+      const reachR = gap ? half + 9 : half
+      const i0 = Math.max(0, Math.floor((p.x - reachR - this.x0) / CELL)), i1 = Math.min(this.nx - 1, Math.ceil((p.x + reachR - this.x0) / CELL))
+      const j0 = Math.max(0, Math.floor((p.z - reachR - this.z0) / CELL)), j1 = Math.min(this.nz - 1, Math.ceil((p.z + reachR - this.z0) / CELL))
       for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
-        if (Math.hypot(this.x0 + i * CELL - p.x, this.z0 + j * CELL - p.z) > half) continue
+        const x = this.x0 + i * CELL, z = this.z0 + j * CELL
+        const d = Math.hypot(x - p.x, z - p.z)
         const k = j * this.nx + i
-        this.heights[k] = Math.min(this.heights[k]!, p.y - under)
+        if (!gap) {
+          if (d > half) continue
+          this.heights[k] = Math.min(this.heights[k]!, p.y - under)
+          continue
+        }
+        // never from under the road leading up to the lip, or it would float
+        if (this.roadDist[k]! < 2.5) continue
+        // only out to the sides of the gap, never past its ends: that's where
+        // cars take off and land (a vine swing drops you just beyond it)
+        const tg = c.tangents[s]!, along = Math.abs((x - p.x) * tg.x + (z - p.z) * tg.z)
+        if (along > 1.6) continue
+        const edge = half + 3 + Math.sin(x * 0.37 + z * 0.21) * 2.5 + Math.sin(x * 0.11 - z * 0.53) * 2
+        if (d > edge + 6) continue
+        const t = THREE.MathUtils.smoothstep(d, edge - 2, edge + 6)
+        const floor = p.y - under - (1 - t) * (2 + Math.abs(Math.sin(x * 0.7 + z * 0.9)) * 1.5)
+        this.heights[k] = Math.min(this.heights[k]!, THREE.MathUtils.lerp(floor, this.heights[k]!, t))
       }
     }
   }

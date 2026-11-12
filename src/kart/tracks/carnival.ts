@@ -448,10 +448,15 @@ export const carnival: TrackDef = {
 /** The log flume's channel: timber troughs, water running in them, splash where it meets the pond. */
 function flumeRide(k: BuildKit, flume: Circuit): void {
   const { world: w, root } = k
-  const m = new Mesher()
+  const m = new Mesher(), probe = { i: -1, lat: 0, y: 0 }
   for (let i = 0; i < flume.count; i += 3) {
     const p = flume.samples[i]!, r = flume.rights[i]!, t = flume.tangents[i]!, half = flume.widths[i]! / 2, yaw = Math.atan2(-t.x, -t.z)
-    for (const s of [-1, 1]) m.box(0.6, 1.8, 6.4, p.x + r.x * s * (half + 0.3), p.y + 0.4, p.z + r.z * s * (half + 0.3), 0x8a5a2a, yaw)
+    for (const s of [-1, 1]) {
+      const x = p.x + r.x * s * (half + 0.3), z = p.z + r.z * s * (half + 0.3)
+      // no trough wall standing on the main road where the flume leaves and rejoins it
+      if (k.circuit.roadAt(x, z, p.y + 1, probe) && Math.abs(probe.lat) < k.circuit.widths[probe.i]! / 2 + 1) continue
+      m.box(0.6, 1.8, 6.4, x, p.y + 0.4, z, 0x8a5a2a, yaw)
+    }
     if (i % 12 === 0) {
       const g = w.terrainAt(p.x, p.z)
       if (p.y - g > 1.5) for (const s of [-1, 1]) m.post(0.3, 0.35, p.y - g, p.x + r.x * s * half, g, p.z + r.z * s * half, 0x6a4a2a, 6)

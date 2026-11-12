@@ -78,6 +78,8 @@ export class Racer {
   private swingTh = 0
   private swingW = 0
   private swingB = 0
+  /** How far down the vine this car holds on (a car arriving high grabs it further up). */
+  private swingL = 0
   private swingLet = 0.6
   private nitroWas = false
   /** On a twisting road (a corkscrew): the road, where along it, and how far across. */
@@ -318,15 +320,23 @@ export class Racer {
       const dx = p.x - v.x, dz = p.z - v.z
       const a = dx * v.fx + dz * v.fz, b = -dx * v.fz + dz * v.fx
       if (a < -v.L * 0.85 || a > -v.L * 0.4 || Math.abs(b) > 9) continue
-      const th = Math.asin(a / v.L)
-      if (Math.abs(p.y - (v.y - v.L * Math.cos(th))) > 4.5) continue
+      // where along the vine the car can reach: its full length, or higher up
+      // it when the car comes in high (a fast car flies over the end)
+      const dy = v.y - p.y
+      if (dy < v.L * 0.45) continue
+      const L = Math.min(v.L, Math.hypot(a, dy))
+      if (Math.hypot(a, dy) > v.L + 4.5) continue
+      const th = Math.asin(THREE.MathUtils.clamp(a / L, -1, 1))
       const along = fwd.x * v.fx + fwd.z * v.fz
       if (along < 0.6) continue
-      const vh = this.car.getSpeed() * along
+      // grabbing the vine takes the edge off a very fast car: whipped round at
+      // full nitro it passed its letting-go point in a frame and fell short
+      const vh = Math.min(44, this.car.getSpeed() * along)
       if (vh < 6) continue
       this.swingV = v
       this.swingTh = th
-      this.swingW = (vh * Math.cos(th) + this.vy * Math.sin(th)) / v.L
+      this.swingL = L
+      this.swingW = (vh * Math.cos(th) + this.vy * Math.sin(th)) / L
       this.swingB = b
       // rivals let go somewhere after the bottom; most pick a good moment
       this.swingLet = 0.48 + Math.random() * 0.3
@@ -348,23 +358,25 @@ export class Racer {
   private stepSwing(dt: number, input: InputState, drive: boolean): void {
     const v = this.swingV!, car = this.car, p = car.position
     const g = this.world.def.gravity ?? GRAVITY
-    this.swingW -= (g / v.L) * Math.sin(this.swingTh) * dt
+    const L = this.swingL || v.L
+    this.swingW -= (g / L) * Math.sin(this.swingTh) * dt
     this.swingTh += this.swingW * dt
     const press = drive && ((!!input.nitro && !this.nitroWas) || (!!input.brake && !this.brakeWas))
     this.nitroWas = !!input.nitro
     this.brakeWas = !!input.brake
     const letGo = this.swingTh >= 1.0 || this.swingW <= 0.05 || (this.isPlayer ? press : this.swingTh >= this.swingLet)
     this.swingB *= 1 - Math.min(1, dt * 0.8)
-    const th = this.swingTh, sp = this.swingW * v.L
-    // the car hangs under the vine's end: the vine meets the middle of its roof
-    p.set(v.x + v.fx * v.L * Math.sin(th) - v.fz * this.swingB, v.y - v.L * Math.cos(th) - 1.5, v.z + v.fz * v.L * Math.sin(th) + v.fx * this.swingB)
+    const th = this.swingTh, sp = this.swingW * L
+    // the car swings on the vine's end; the vine is drawn to the middle of its
+    // roof as the car tilts (not to a fixed point, which ended inside the body)
+    p.set(v.x + v.fx * L * Math.sin(th) - v.fz * this.swingB, v.y - L * Math.cos(th), v.z + v.fz * L * Math.sin(th) + v.fx * this.swingB)
     car.heading = Math.atan2(-v.fx, -v.fz)
     car.setSpeed(Math.max(0, sp * Math.cos(th)))
     this.follow()
     car.mesh.position.copy(p)
     car.mesh.rotation.set(0, car.heading, 0)
     car.mesh.rotateX(th * 0.6)
-    const roof = _roof.set(0, 1.5, 0).applyQuaternion(car.mesh.quaternion).add(p)
+    const roof = _roof.set(0, 1.4, 0).applyQuaternion(car.mesh.quaternion).add(p)
     v.holds.push(roof.x, roof.y, roof.z)
     if (letGo) {
       this.swingV = null

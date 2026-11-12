@@ -5,7 +5,7 @@ import { Mesher, place, surface } from '../art/arch'
 import type { Solid } from '../World'
 import type { Circuit } from '../Circuit'
 import type { BuildKit, PointOpts, TrackDef } from '../types'
-import { arrows, gantry, glow, loopTracks } from './parts'
+import { arrows, gantry, glow, loopTracks, twistDress } from './parts'
 
 const R: PointOpts = { raised: true, deck: 'steel', rail: 'LR' }
 /** Where the sun hangs in the sky, as a direction from the station. */
@@ -245,6 +245,8 @@ export const solar: TrackDef = {
     place(k, lips, surface('paint', { rough: 0.3 }))
     glassTube(k, c.branches[1]!)
     loopTracks(k, 0xdfe4ea, 0x6ad8ff)
+    // the corkscrew: lit rails and hoops so it reads as a built thing, not a bare sheet
+    twistDress(k, new THREE.Color(0.4, 0.85, 1))
 
     // ── the crown: the station's great ring, its spires rising round it
     const crown = new Mesher(), windows: THREE.Matrix4[] = []

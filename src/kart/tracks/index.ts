@@ -4,7 +4,8 @@ import { jungle } from './jungle'
 import { blossom } from './blossom'
 import { neon } from './neon'
 import { deep } from './deep'
-import { goldrush } from './goldrush'
+import { volcano } from './volcano'
+import { storm } from './storm'
 import { bobsleigh } from './bobsleigh'
 import { sky } from './sky'
 import { carnival } from './carnival'
@@ -16,4 +17,4 @@ import { galleon } from './galleon'
 import { solar } from './solar'
 
 /** Every race that can be driven, by id. */
-export const RACES: Record<string, TrackDef> = { bay, jungle, blossom, neon, deep, goldrush, bobsleigh, sky, carnival, dam, cranes, mars, manor, galleon, solar }
+export const RACES: Record<string, TrackDef> = { bay, jungle, blossom, neon, deep, volcano, bobsleigh, sky, carnival, dam, cranes, mars, manor, galleon, solar, storm }

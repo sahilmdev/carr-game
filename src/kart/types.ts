@@ -170,6 +170,8 @@ export interface BuildKit {
   water: Water | null
   /** Called every frame: scenery that moves, and what changes by lap. */
   onFrame(fn: (f: FrameInfo) => void): void
+  /** Light the whole screen for a moment (lightning): colour 0–1, strength 0–1. */
+  flash(r: number, g: number, b: number, strength: number): void
 }
 
 export interface FrameInfo {

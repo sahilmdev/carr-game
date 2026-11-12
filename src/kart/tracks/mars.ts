@@ -7,7 +7,7 @@ import { mountainRing } from '../art/terrain'
 import type { BuildKit, TrackDef } from '../types'
 import type { Zone } from '../World'
 import type { Circuit } from '../Circuit'
-import { arrows, crates, drift, gantry, glow, mist, stands, zoneFx } from './parts'
+import { arrows, brokenLips, crates, drift, gantry, glow, mist, stands, zoneFx } from './parts'
 
 const CRATER = { x: 290, z: -487, r: 160 }
 const MESA = { x: -455, z: -470, r: 165, edge: 240, h: 46 }
@@ -175,6 +175,8 @@ export const mars: TrackDef = {
     gantry(k, 'Mars Colony', '#ff7a4a')
     stands(k, 8, 40, -1, [0xe86a3a, 0xe8e6e0, 0x3a5a7a, 0xd8b03a, 0x2a2e38], 0xff7a4a, 'Ares Base')
     arrows(k, 0xff9a5a)
+    // where the road breaks off over the rift and the crater: a ragged lip, not a clean cut
+    brokenLips(k, 0x8a4a2e, 0x3a2e2a)
     mountainRing(root, -60, -380, { inner: 1300, outer: 3200, height: 380, rock: 0x9a5a3a, seed: 31 })
 
     // ── domes; the big one has a garden inside and the road runs through it

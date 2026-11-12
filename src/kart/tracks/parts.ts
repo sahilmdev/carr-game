@@ -243,7 +243,7 @@ export function movingDeck(k: BuildKit, width: number, length: number, body: num
   const m = new Mesher()
   m.box(width, depth, length, 0, -depth / 2, 0, body)
   for (const s of [-1, 1]) m.box(0.4, 0.25, length, s * (width / 2 - 0.2), 0.1, 0, edge)
-  for (let z = -length / 2 + 3; z < length / 2 - 2; z += 6) for (const s of [-1, 1]) m.box(0.45, 0.04, 2.2, s * 0.8, 0.03, z, edge, s * 0.7)
+  for (let z = -length / 2 + 3; z < length / 2 - 2; z += 6) for (const s of [-1, 1]) m.box(0.45, 0.04, 2.2, s * 0.8, 0.03, z, edge, -s * 0.7) // a chevron pointing the way you drive (front is +z)
   const mesh = new THREE.Mesh(m.build(), surface('paint', { rough: 0.5, metal: 0.3 }))
   mesh.castShadow = true
   mesh.frustumCulled = false
@@ -419,16 +419,25 @@ export function edgeLights(k: BuildKit, color: THREE.Color, o: { spacing?: numbe
   const pos: number[] = [], idx: number[] = []
   const lamps: THREE.Matrix4[] = [], posts: THREE.Matrix4[] = []
   const v = new THREE.Vector3(), q = new THREE.Vector3()
+  const probe = { i: -1, lat: 0, y: 0 }
+  // a point lying on some other road (where a fork leaves or a join comes in):
+  // no strip or lamp there, or it would run across that road
+  const onOther = (c: Circuit, x: number, y: number, z: number): boolean => k.circuit.all.some((o) => o !== c && o.roadAt(x, z, y + 1, probe) && probe.i >= 0 && Math.abs(probe.lat) < o.widths[probe.i]! / 2 + 0.5 && Math.abs(probe.y - y) < 1.5)
   for (const c of k.circuit.all) {
     const n = c.count, last = c.closed ? n : n - 1
     for (const sd of [-1, 1]) {
       const base = pos.length / 3
+      const off: boolean[] = []
       for (let i = 0; i <= last; i++) {
         const j = i % n, half = c.widths[j]! / 2
         c.at(j, sd * (half - 0.35), 0.05, v)
+        off.push(onOther(c, v.x, v.y, v.z))
         c.at(j, sd * (half - 0.35 - stripW), 0.05, q)
         pos.push(v.x, v.y, v.z, q.x, q.y, q.z)
-        if (i < last && !c.gap[j] && !c.gap[(j + 1) % n]) {
+      }
+      for (let i = 0; i <= last; i++) {
+        const j = i % n
+        if (i < last && !c.gap[j] && !c.gap[(j + 1) % n] && !off[i] && !off[i + 1]) {
           const a = base + i * 2
           idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2)
         }
@@ -437,7 +446,7 @@ export function edgeLights(k: BuildKit, color: THREE.Color, o: { spacing?: numbe
         if (c.gap[i] || c.tunnel[i] || c.roll[i] || c.pipe[i]) continue
         const half = c.widths[i]! / 2
         c.at(i, sd * (half + 0.9), 0, v)
-        if (k.world.blocked(v.x, v.z, 0.4)) continue
+        if (k.world.blocked(v.x, v.z, 0.4) || onOther(c, v.x, v.y, v.z)) continue
         posts.push(trs(v.x, v.y + 0.45, v.z, 0, new THREE.Vector3(0.12, 0.9, 0.12)))
         lamps.push(trs(v.x, v.y + 1.0, v.z, 0, 0.22))
       }
@@ -466,4 +475,81 @@ export function edgeLights(k: BuildKit, color: THREE.Color, o: { spacing?: numbe
       k.root.add(m)
     }
   }
+}
+
+/**
+ * Where a road on the ground breaks off over a jump: the tarmac ends in a
+ * ragged edge of cracked slabs tipping into the gap, with rubble and loose
+ * rock below, instead of a clean cut. On both sides of every gap.
+ */
+export function brokenLips(k: BuildKit, rock: number, tar = 0x2a2a2e): void {
+  const { circuit: c, d } = k
+  const slabs = new Mesher(), rubble = new Mesher()
+  for (const cc of c.all) for (let i = 1; i < cc.count; i++) {
+    if (cc.gap[i] === cc.gap[i - 1]) continue
+    // the last solid sample before the gap, and which way the gap lies
+    const j = cc.gap[i] ? i - 1 : i, dir = cc.gap[i] ? 1 : -1
+    if (cc.raised[j]) continue
+    const p = cc.samples[j]!, t = cc.tangents[j]!, r = cc.rights[j]!, half = cc.widths[j]! / 2
+    const yaw = Math.atan2(-t.x, -t.z)
+    for (let lat = -half + 0.6; lat < half; lat += 1.1 + d.rand() * 0.9) {
+      // slabs of tarmac broken off the lip, tipped down into the gap
+      const out = 0.4 + d.rand() * 1.2, w = 0.9 + d.rand() * 1.4, len = 0.8 + d.rand() * 1.6
+      const tip = 0.25 + d.rand() * 0.6
+      const x = p.x + t.x * dir * out + r.x * lat, z = p.z + t.z * dir * out + r.z * lat
+      slabs.add(new THREE.BoxGeometry(w, 0.32, len), new THREE.Matrix4().compose(
+        new THREE.Vector3(x, p.y - 0.25 - out * 0.35, z),
+        new THREE.Quaternion().setFromEuler(new THREE.Euler(tip * dir * (d.rand() > 0.2 ? -1 : 1), yaw + (d.rand() - 0.5) * 0.5, (d.rand() - 0.5) * 0.4, 'YXZ')),
+        new THREE.Vector3(1, 1, 1)), tar)
+      // rubble and rock fallen below
+      const s = 0.5 + d.rand() * 1.2, drop = 1.5 + d.rand() * 3.5
+      rubble.add(new THREE.DodecahedronGeometry(s, 0), trs(x + t.x * dir * (1 + d.rand() * 3), p.y - drop, z + t.z * dir * (1 + d.rand() * 3), d.rand() * 6, 1), rock)
+    }
+    // a few broken chunks of the road's bed hanging from the edge
+    for (let q = 0; q < 4; q++) {
+      const lat = (d.rand() - 0.5) * 2 * half, s = 0.8 + d.rand() * 0.8
+      rubble.add(new THREE.DodecahedronGeometry(s, 0), trs(p.x + t.x * dir * 0.6 + r.x * lat, p.y - 0.9 - d.rand(), p.z + t.z * dir * 0.6 + r.z * lat, d.rand() * 6, new THREE.Vector3(1.3, 0.7, 1)), rock)
+    }
+  }
+  if (!slabs.empty) place(k, slabs, surface('concrete', { rough: 0.95 }), false).userData['keep'] = true
+  if (!rubble.empty) place(k, rubble, surface('rock'), false).userData['keep'] = true
+}
+
+/**
+ * Dress a twisting stretch (a corkscrew) so it reads at speed: glowing rails
+ * along both edges the whole way through, a lit centre line, and hoops round
+ * the road's axis every few metres, turning with it like a cage.
+ */
+export function twistDress(k: BuildKit, color: THREE.Color): void {
+  const c = k.circuit, n = c.count
+  const rails = new Mesher(), hoops = new Mesher()
+  const a = new THREE.Vector3(), b = new THREE.Vector3()
+  for (let i = 0; i < n; i++) {
+    // a little before and after the twist too, so the rails run in and out of it
+    let near = false
+    for (let q = -6; q <= 6 && !near; q++) near = c.roll[(i + q + n) % n] !== 0
+    if (!near || c.gap[i]) continue
+    const j = (i + 1) % n, half = c.widths[i]! / 2, halfJ = c.widths[j]! / 2
+    for (const sd of [-1, 1]) {
+      rails.bar(c.at(i, sd * (half - 0.2), 0.35, a), c.at(j, sd * (halfJ - 0.2), 0.35, b), 0.12, 0xffffff, 5)
+    }
+    rails.bar(c.at(i, 0, 0.03, a), c.at(j, 0, 0.03, b), 0.06, 0xffffff, 3)
+    if (c.roll[i] !== 0 && i % 4 === 0) {
+      // a hoop round the road: through both edges and over the top
+      const R = half + 0.8, N = 20
+      const ctr = c.at(i, 0, R * 0.55, new THREE.Vector3())
+      const up = c.at(i, 0, 1, new THREE.Vector3()).sub(c.at(i, 0, 0, new THREE.Vector3())).normalize()
+      const side = c.at(i, 1, 0, new THREE.Vector3()).sub(c.at(i, 0, 0, new THREE.Vector3())).normalize()
+      let prev: THREE.Vector3 | null = null
+      for (let q = 0; q <= N; q++) {
+        const th = (q / N) * Math.PI * 2
+        const pt = ctr.clone().addScaledVector(side, Math.cos(th) * R).addScaledVector(up, Math.sin(th) * R * 0.85)
+        if (prev) hoops.bar(prev, pt, 0.09, 0xffffff, 4)
+        prev = pt
+      }
+    }
+  }
+  const mat = new THREE.MeshBasicMaterial({ color: color.clone().multiplyScalar(2.2), toneMapped: false, vertexColors: true })
+  if (!rails.empty) { const m = new THREE.Mesh(rails.build(), mat); m.userData['keep'] = true; k.root.add(m) }
+  if (!hoops.empty) { const m = new THREE.Mesh(hoops.build(), mat); m.userData['keep'] = true; k.root.add(m) }
 }

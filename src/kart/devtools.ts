@@ -337,13 +337,15 @@ export function install(app: unknown): void {
     await fetch(`/__shot?name=${encodeURIComponent(name ?? 'sheet_' + id)}`, { method: 'POST', body: sh.toDataURL('image/jpeg', 0.75) })
     return 'ok'
   }
-  w.__race = async (id: string, opts: { laps?: number; diff?: string } = {}) => {
+  w.__race = async (id: string, opts: { laps?: number; diff?: string; apLevel?: number } = {}) => {
     await load(id)
     k.noIntro = true
     k.loop.stop()
     await k.startRace(opts.laps ?? 3, opts.diff ?? 'medium')
     const Rival = k.rivals[0].constructor
     const ap = new Rival(k.player, { name: 'AP', pace: 1, mistakes: 0, bold: 0.4, color: 0, car: 'rotor' }, 'hard', Math.random)
+    // a fixed skill for the stand-in player, so tuning the rivals' levels doesn't move it
+    ap.level = opts.apLevel ?? 1
     const dt = 1 / 60
     k.driver = () => { ap.drive(dt, 0); return { ...ap.input } }
     let T = 0, lastLap = 0, chunkAt = performance.now()
@@ -377,6 +379,12 @@ export function install(app: unknown): void {
     res.rivalFalls = k.racers.filter((r: any) => !r.isPlayer).map((r: any) => r.falls)
     res.rivalProg = k.racers.filter((r: any) => !r.isPlayer).map((r: any) => +(r.progress / k.circuit.count).toFixed(2))
     res.place = k.order ? k.order().indexOf(k.player) + 1 : null
+    // seconds between you and each rival at the flag (+ = rival behind you), from their pace
+    res.gaps = k.racers.filter((r: any) => !r.isPlayer).map((r: any) => {
+      const tot = (opts.laps ?? 3) * k.circuit.count
+      const t = r.finished ? r.finishMs : k.raceMs * tot / Math.max(r.progress, tot * 0.05)
+      return +((t - k.player.finishMs) / 1000).toFixed(1)
+    })
     res.len = Math.round(k.circuit.length)
     k.driver = null; k.exitRace(); k.loop.start()
     return res

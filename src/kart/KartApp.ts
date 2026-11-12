@@ -66,6 +66,8 @@ interface Taped { obj: THREE.Object3D; parent: THREE.Object3D | null; base: Floa
 type Phase = 'idle' | 'preview' | 'intro' | 'countdown' | 'racing' | 'finished' | 'replay'
 
 /** One track at a time: everything for a race lives under `root` and is freed afterwards. */
+const MUTED = new URLSearchParams(location.search).has('mute')
+
 export class KartApp {
   readonly gfx: GameRenderer
   readonly post: PostProcessing
@@ -172,8 +174,10 @@ export class KartApp {
     this.post.setOptions({ ao: false, smaa: high, bloom: !low })
     this.onResize()
     this.post.setMotionBlur(s.motionBlur)
-    this.audio.setVolume(s.volume)
-    this.music.setVolume(s.volume)
+    // ?mute in the address (automated test runs): silent whatever the settings say
+    const vol = MUTED ? 0 : s.volume
+    this.audio.setVolume(vol)
+    this.music.setVolume(vol)
     this.chase.setDistanceScale(s.camera === 'near' ? 0.8 : s.camera === 'far' ? 1.25 : 1)
   }
 
@@ -303,7 +307,7 @@ export class KartApp {
     this.items = new Items(this.root, circuit, world, this.rand)
     this.items.onEvent = this.itemEvent
     const d = new Dresser(this.root, circuit, world, this.assets, id.length * 97 + 11)
-    await def.build({ track: def, world, circuit, root: this.root, d, road: base.road, water: base.water, onFrame: (fn) => { if (ticket === this.loadTicket) this.frames.push(fn) } })
+    await def.build({ track: def, world, circuit, root: this.root, d, road: base.road, water: base.water, onFrame: (fn) => { if (ticket === this.loadTicket) this.frames.push(fn) }, flash: (r, g, b, a) => { if (this.phase === 'idle') return; this.flashColor.setRGB(r, g, b); this.flash = Math.max(this.flash, a) } })
     this.frames.push((f) => d.tick(f.camera.position))
     const pads = this.root.getObjectByName('pads') as THREE.Mesh | undefined
     if (pads) {
@@ -1256,6 +1260,7 @@ function prepareCar(m: THREE.Object3D, info: CarInfo): void {
     m.traverse((o) => { if (o !== m && re.test(o.name)) gone.push(o) })
     for (const o of gone) o.parent?.remove(o)
   }
+  splitWheels(m)
   m.traverse((o) => {
     // only a single wheel counts as a wheel: one mesh with all four, or the
     // arch over one, would be spun about the wrong centre
@@ -1273,6 +1278,59 @@ function prepareCar(m: THREE.Object3D, info: CarInfo): void {
     })
     mesh.material = Array.isArray(mesh.material) ? mats : mats[0]!
   })
+}
+
+/**
+ * Some models keep all four wheels in one mesh (a node named "Wheels…"), so
+ * none can turn on its own. Cut it into four, one per corner, each its own
+ * group named as a wheel: the car then spins them like any other.
+ */
+function splitWheels(m: THREE.Object3D): void {
+  const roots: THREE.Object3D[] = []
+  m.traverse((o) => { if (/^wheels[_ ]/i.test(o.name) && !roots.some((r) => isUnder(o, r))) roots.push(o) })
+  if (!roots.length) return
+  m.updateMatrixWorld(true)
+  const toRoot = new THREE.Matrix4().copy(m.matrixWorld).invert()
+  const parts: { geo: THREE.BufferGeometry; mat: THREE.Material | THREE.Material[]; mesh: THREE.Mesh }[] = []
+  for (const r of roots) r.traverse((o) => {
+    const mesh = o as THREE.Mesh
+    if (!mesh.isMesh) return
+    const geo = (mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry.clone())
+    geo.applyMatrix4(new THREE.Matrix4().multiplyMatrices(toRoot, mesh.matrixWorld))
+    parts.push({ geo, mat: mesh.material, mesh })
+  })
+  if (!parts.length) return
+  const box = new THREE.Box3()
+  for (const p of parts) { p.geo.computeBoundingBox(); box.union(p.geo.boundingBox!) }
+  const c = box.getCenter(new THREE.Vector3())
+  const groups = [0, 1, 2, 3].map((q) => { const g = new THREE.Group(); g.name = `wheel_q${q}`; m.add(g); return g })
+  for (const p of parts) {
+    const pos = p.geo.getAttribute('position')
+    const attrs = Object.keys(p.geo.attributes)
+    const buckets: Record<string, number[]>[] = [0, 1, 2, 3].map(() => Object.fromEntries(attrs.map((a) => [a, [] as number[]])))
+    for (let t = 0; t < pos.count; t += 3) {
+      const cx = (pos.getX(t) + pos.getX(t + 1) + pos.getX(t + 2)) / 3, cz = (pos.getZ(t) + pos.getZ(t + 1) + pos.getZ(t + 2)) / 3
+      const q = (cx > c.x ? 1 : 0) + (cz > c.z ? 2 : 0)
+      for (const a of attrs) {
+        const at = p.geo.getAttribute(a)
+        for (let v = t; v < t + 3; v++) for (let k = 0; k < at.itemSize; k++) buckets[q]![a]!.push(at.getComponent(v, k))
+      }
+    }
+    buckets.forEach((b, q) => {
+      if (!b['position']!.length) return
+      const g = new THREE.BufferGeometry()
+      for (const a of attrs) g.setAttribute(a, new THREE.Float32BufferAttribute(b[a]!, p.geo.getAttribute(a).itemSize))
+      const piece = new THREE.Mesh(g, p.mat)
+      piece.name = `wheelpart_${q}`
+      groups[q]!.add(piece)
+    })
+    p.mesh.parent?.remove(p.mesh)
+  }
+}
+
+function isUnder(o: THREE.Object3D, root: THREE.Object3D): boolean {
+  for (let p = o.parent; p; p = p.parent) if (p === root) return true
+  return false
 }
 
 /** The flat direction a car mesh faces. */

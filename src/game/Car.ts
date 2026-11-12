@@ -711,8 +711,8 @@ export class Car {
     }
     for (const m of this.headMats) m.emissiveIntensity = 1.2 + level * 5
     this.beamMat.opacity = level * 0.07
-    this.glareMat.opacity = 0.25 + level * 0.75
-    this.tailGlowMat.opacity = 0.3 + level * 0.6
+    this.glareMat.opacity = level * 0.95
+    this.tailGlowMat.opacity = level * 0.85
     for (const o of this.lamps.children) if (o.name === 'beam') o.visible = level > 0.05
   }
 

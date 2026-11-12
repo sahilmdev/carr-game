@@ -19,6 +19,8 @@ const THEMES: Record<string, Theme> = {
   deep: { bpm: 100, root: 36, scale: MINOR, chords: [0, 2, 5, 4], wave: 'sine', leadWave: 'sine', sparse: true },
   goldrush: { bpm: 142, root: 41, scale: PENTA, chords: [0, 3, 0, 4], wave: 'triangle', leadWave: 'sawtooth', swing: 0.18 },
   bobsleigh: { bpm: 150, root: 42, scale: MINOR, chords: [0, 6, 5, 4], wave: 'sawtooth', leadWave: 'triangle' },
+  volcano: { bpm: 136, root: 38, scale: MINOR, chords: [0, 5, 6, 4], wave: 'sawtooth', leadWave: 'square' },
+  storm: { bpm: 146, root: 40, scale: DORIAN, chords: [0, 6, 3, 4], wave: 'sawtooth', leadWave: 'triangle' },
   sky: { bpm: 124, root: 47, scale: MAJOR, chords: [0, 4, 5, 3], wave: 'triangle', leadWave: 'sine' },
 }
 

@@ -36,7 +36,7 @@ export class Lobby {
   private screen: ScreenName = 'title'
   private mode: Mode = 'single'
   private cup = 0
-  private track: TrackInfo = GRAND_TOUR
+  private track: TrackInfo = TRACKS[0]!
   private car: CarInfo = savedCar()
   private cycle = 0
   private previewing = ''
@@ -274,13 +274,13 @@ export class Lobby {
   private drawTracks(): void {
     const box = document.getElementById('track-list')!
     box.innerHTML = ''
-    for (const t of [GRAND_TOUR, ...TRACKS]) box.append(this.tile(t, () => this.pickTrack(t), false))
+    for (const t of TRACKS) box.append(this.tile(t, () => this.pickTrack(t), false))
     this.pickTrack(this.track)
   }
 
   private startTrack(): void {
     if (this.track.id === GRAND_TOUR.id) { this.host.startTour(); return }
-    if (!this.track.built) { this.showNotice(`${this.track.name} isn't built yet`, 'This one is still to come. The Comet and Nova Cup tracks and the Grand Tour are ready.'); return }
+    if (!this.track.built) { this.showNotice(`${this.track.name} isn't built yet`, 'This one is still to come.'); return }
     this.previewing = ''
     this.host.startTrack(this.track, this.laps, this.difficulty)
   }
