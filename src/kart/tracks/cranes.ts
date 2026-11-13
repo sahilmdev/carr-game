@@ -87,6 +87,8 @@ const STREET = 0.5
 export const cranes: TrackDef = {
   id: 'cranes',
   name: 'Skyline Cranes',
+  news: ['LOADS SWINGING LOW', 'HIGH WIND ON THE ROOFS'],
+  weather: ['rain', 'fog'],
   ambience: 'city',
   width: 16,
   bank: 2,
@@ -164,13 +166,16 @@ export const cranes: TrackDef = {
       // the crane lift: a crane hoists a steel deck between the low roof and
       // the high one. Raised, it's a ramp straight up; lowered, the gate is
       // down and you wait. Arrive as it goes green and it's the quick way up.
-      name: 'Crane lift', from: 11, to: 14, odds: 0.4,
+      name: 'Crane lift', from: 11, to: 14, odds: 0.6,
       points: [
-        [478, 22, -262, { raised: true, w: 14, rail: 'LR' }],
-        [462, 22, -290, { raised: true, w: 14, rail: '' }],
+        // (it leaves wide and early, climbing with the main road at first: it used to peel off so late and so close that from the
+        // main road you were already above it, behind the rail)
+        [474, 24, -238, { raised: true, w: 20 }],
+        [458, 26, -270, { raised: true, w: 17, rail: 'LR' }],
+        [452, 26.5, -292, { raised: true, w: 14, rail: 'LR' }],
         [446, 30, -318, { gap: true, w: 14 }],
         [430, 38, -346, { gap: true, w: 14 }],
-        [414, 46, -374, { raised: true, w: 14, rail: '' }],
+        [414, 46, -374, { raised: true, w: 14, rail: 'LR' }],
         [384, 46, -428, { raised: true, w: 14, rail: 'LR', pad: 0 }],
       ],
     },
@@ -405,6 +410,7 @@ export const cranes: TrackDef = {
  */
 function craneLift(k: BuildKit, lift: Circuit): void {
   const { world: w, root } = k
+  lift.bridged = true
   const g = findGap(lift, 438, -332)
   const lip = lift.samples[Math.max(0, g.i0 - 1)]!, land = lift.samples[Math.min(lift.count - 1, g.i1 + 1)]!
   const yaw = Math.atan2(land.x - lip.x, land.z - lip.z)
@@ -468,6 +474,5 @@ function craneLift(k: BuildKit, lift: Circuit): void {
     armA += ((open ? 1.45 : 0) - armA) * Math.min(1, f.dt * 5)
     armPivot.rotation.z = -armA
     gate.top = armA < 0.6 ? gp.y + 6 : -1e6
-    lift.join!.odds = 0.4
   })
 }

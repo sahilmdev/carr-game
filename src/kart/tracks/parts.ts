@@ -149,9 +149,16 @@ export function drift(k: BuildKit, count: number, color: number, size: number, f
   const m = new THREE.Points(g, new THREE.PointsMaterial({ map, color, size, transparent: true, depthWrite: false, opacity: 0.9 }))
   m.frustumCulled = false
   k.root.add(m)
+  // no rain or snow in a tunnel or cave: gone under a roof, back outside
+  const paths = k.circuit ? k.circuit.all : []
+  const covered = (c: THREE.Vector3): boolean => paths.some((p) => (p.near(c.x, c.z) ?? []).some((j) => p.tunnel[j] && c.y < p.samples[j]!.y + 9 && Math.hypot(p.samples[j]!.x - c.x, p.samples[j]!.z - c.z) < p.widths[j]! / 2 + 6))
+  const mat = m.material as THREE.PointsMaterial
   k.onFrame((f) => {
     if (!m.visible) return
     const c = f.camera.position
+    // (the material, not the object: tracks switch the object on and off for the weather)
+    mat.visible = !covered(c)
+    if (!mat.visible) return
     for (let i = 0; i < count; i++) {
       const o = i * 3
       const y = ((seed[o + 1]! - f.time * fall) % 40 + 40) % 40
@@ -537,7 +544,8 @@ export function twistDress(k: BuildKit, color: THREE.Color): void {
     if (c.roll[i] !== 0 && i % 4 === 0) {
       // a hoop round the road: through both edges and over the top
       const R = half + 0.8, N = 20
-      const ctr = c.at(i, 0, R * 0.55, new THREE.Vector3())
+      // (centred high enough that the hoop meets the deck at its edges, never cuts across it)
+      const ctr = c.at(i, 0, R * 0.86, new THREE.Vector3())
       const up = c.at(i, 0, 1, new THREE.Vector3()).sub(c.at(i, 0, 0, new THREE.Vector3())).normalize()
       const side = c.at(i, 1, 0, new THREE.Vector3()).sub(c.at(i, 0, 0, new THREE.Vector3())).normalize()
       let prev: THREE.Vector3 | null = null

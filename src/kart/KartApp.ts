@@ -19,6 +19,8 @@ import { CARS, savedCar, type CarInfo } from '../game/Catalog'
 import { savedPaint } from '../game/Progress'
 import type { Settings } from '../ui/Settings'
 import { carveRoads, tidyProps } from './tidy'
+import { LapGhost } from './LapGhost'
+import { drift } from './tracks/parts'
 import { Circuit } from './Circuit'
 import { World } from './World'
 import { Dresser } from './dress'
@@ -30,7 +32,8 @@ import { canvasTexture, softDot } from '../game/biomes/kit'
 import { atmos, installAtmosphere, windClock } from './art/atmos'
 import { Music } from './Music'
 import { Items, type ItemKind } from './Items'
-import type { FrameInfo, TrackDef } from './types'
+import { shortcutRisk } from './shortcutRisk'
+import type { BuildKit, FrameInfo, TrackDef } from './types'
 
 const BASE = import.meta.env.BASE_URL
 const COLOR_GRADE = [1.08, 1.08, 0, 0, 0, 1, 1, 1, 0.28] as const
@@ -52,6 +55,8 @@ export interface KartUI {
   toast(text: string, best?: boolean): void
   raceStarted(): void
   raceEnded(rows: RaceResultRow[]): void
+  /** The others are still racing behind the results: the table as it stands now. */
+  raceUpdate?(rows: RaceResultRow[]): void
   loading(on: boolean, text?: string): void
   /** A replay has started (true) or run out (false). */
   replay?(on: boolean): void
@@ -128,6 +133,15 @@ export class KartApp {
   private previewPos = 0
   private bestLap = 0
   private leaderLap = 1
+  /** Your best lap, raced as a see-through car (single races only: set by the menu). */
+  ghostOn = false
+  /** Time trial: you alone against the clock and your ghost, no rivals, no items. */
+  solo = false
+  private ghost: LapGhost | null = null
+  /** The lap whose news has been shown, and a banner waiting its turn. */
+  private newsLap = 1
+  private newsT = 0
+  private newsText = ''
   private place = 1
   private accent = new THREE.Color(0xffffff)
   private readonly _v = new THREE.Vector3()
@@ -268,7 +282,7 @@ export class KartApp {
     this.rivals = []
     for (const d of this.drones.values()) this.gfx.scene.remove(d)
     this.drones.clear()
-    this.wingsOf.clear()
+    this.dropWings()
     this.items = null
     this.effects.clear()
   }
@@ -302,12 +316,14 @@ export class KartApp {
     this.circuit = circuit
     this.world = world
     this.leaderLap = 1
+    this.newsLap = 1
+    this.newsT = 0
     this.accent.set(def.accent)
     const base = buildBase(def, circuit, world, this.root)
     this.items = new Items(this.root, circuit, world, this.rand)
     this.items.onEvent = this.itemEvent
     const d = new Dresser(this.root, circuit, world, this.assets, id.length * 97 + 11)
-    await def.build({ track: def, world, circuit, root: this.root, d, road: base.road, water: base.water, onFrame: (fn) => { if (ticket === this.loadTicket) this.frames.push(fn) }, flash: (r, g, b, a) => { if (this.phase === 'idle') return; this.flashColor.setRGB(r, g, b); this.flash = Math.max(this.flash, a) } })
+    await def.build({ track: def, world, circuit, root: this.root, d, road: base.road, water: base.water, onFrame: (fn) => { if (ticket === this.loadTicket) this.frames.push(fn) }, flash: (r, g, b, a) => { if (this.phase === 'idle') return; this.flashColor.setRGB(r, g, b); this.flash = Math.max(this.flash, a) }, sfx: (name, vol) => { if (this.phase === 'racing' || this.phase === 'finished' || this.phase === 'replay') this.audio.sfx(name, vol) }, announce: (text) => { if (this.phase === 'racing') this.ui.toast(text, true) } })
     this.frames.push((f) => d.tick(f.camera.position))
     const pads = this.root.getObjectByName('pads') as THREE.Mesh | undefined
     if (pads) {
@@ -317,9 +333,12 @@ export class KartApp {
     await d.ready()
     this.tidy = tidyProps(this.root, circuit, world)
     this.carved = carveRoads(this.root, circuit, world)
+    // shortcuts: quicker, but guarded by swinging booms
+    shortcutRisk(this.root, circuit, world, (fn) => { if (ticket === this.loadTicket) this.frames.push(fn) })
     await this.loadSky(def)
     if (ticket !== this.loadTicket) return
     this.applyLook(def)
+    this.rollWeather(def, base.road)
     this.minimap = new Minimap(this.mapCanvas, { samples: circuit.samples, tangents: circuit.tangents, spawnPosition: circuit.samples[0]!, branches: circuit.branches.map((b) => b.samples) } as never)
     this.minimap.drawStatic()
     this.toGrid()
@@ -327,6 +346,38 @@ export class KartApp {
     if (ticket !== this.loadTicket) return
     this.loadMs = performance.now() - t0
     this.ui.loading(false)
+  }
+
+  /** Weather picked for this race, shown with the track name. */
+  weatherNow: 'rain' | 'fog' | 'snow' | null = null
+  /**
+   * Now and then a daytime track gets weather for the race: rain (a wet,
+   * shining road), fog or snowfall, so no two visits feel the same.
+   */
+  private rollWeather(def: TrackDef, road: { wet: { value: number } }): void {
+    this.weatherNow = null
+    const opts = def.weather
+    if (!opts?.length || this.rand() > 0.35) return
+    const w = opts[Math.floor(this.rand() * opts.length)]!
+    this.weatherNow = w
+    const fog = this.gfx.scene.fog as THREE.FogExp2
+    const kit = { root: this.root, circuit: this.circuit, onFrame: (fn: (f: FrameInfo) => void) => this.frames.push(fn) } as unknown as BuildKit
+    if (w === 'rain') {
+      drift(kit, 1100, 0xcdd8e2, 1.5, 44, true)
+      road.wet.value = Math.max(road.wet.value, 0.85)
+      this.frames.push(() => { road.wet.value = Math.max(road.wet.value, 0.85) })
+      fog.density *= 1.5
+      atmos.params.x = fog.density
+      this.lights.sun.intensity *= 0.6
+    } else if (w === 'snow') {
+      drift(kit, 900, 0xffffff, 0.6, 5)
+      fog.density *= 1.7
+      atmos.params.x = fog.density
+    } else {
+      fog.density *= 2.6
+      atmos.params.x = fog.density
+      this.lights.sun.intensity *= 0.75
+    }
   }
 
   /** Build every shader now so the race doesn't stutter on first sight. */
@@ -392,6 +443,70 @@ export class KartApp {
   showGrid(): void {
     this.phase = 'idle'
     this.toGrid()
+  }
+
+  /**
+   * The end of a cup: the top three cars on a podium beside the start line,
+   * gold, silver and bronze, the camera circling slowly. Names are as in the
+   * standings ('You' for the player).
+   */
+  private podium: THREE.Group | null = null
+  private podiumT = 0
+  showPodium(names: string[]): void {
+    const c = this.circuit
+    if (!c) return
+    this.phase = 'idle'
+    this.ui.countdown(null)
+    if (this.ghost) this.ghost.mesh.visible = false
+    if (this.podium) this.gfx.scene.remove(this.podium)
+    const i = 20 % c.count, p = c.samples[i]!, t = c.tangents[i]!
+    const g = new THREE.Group()
+    g.position.copy(p)
+    g.rotation.y = Math.atan2(t.x, t.z)
+    // second on the left, first in the middle, third on the right
+    const steps = [{ x: 0, h: 1.8, col: 0xf2c230 }, { x: 6, h: 1.2, col: 0xc8ccd4 }, { x: -6, h: 0.7, col: 0xc88a4a }]
+    const gold = new THREE.MeshStandardMaterial({ color: 0x2a2e38, roughness: 0.5 })
+    // only the top three in the picture
+    for (const r of this.racers) r.car.mesh.visible = false
+    steps.forEach((st, q) => {
+      const block = new THREE.Mesh(new THREE.BoxGeometry(5.6, st.h, 6), gold)
+      block.position.set(st.x, st.h / 2, 0)
+      const top = new THREE.Mesh(new THREE.BoxGeometry(5.7, 0.12, 6.1), new THREE.MeshStandardMaterial({ color: st.col, metalness: 0.6, roughness: 0.3, emissive: new THREE.Color(st.col).multiplyScalar(0.25) }))
+      top.position.set(st.x, st.h + 0.06, 0)
+      g.add(block, top)
+      const r = this.racers.find((x) => (names[q] === 'You' ? x.isPlayer : x.name === names[q]))
+      if (!r) return
+      const m = r.car.mesh
+      g.updateMatrixWorld(true)
+      const at = g.localToWorld(new THREE.Vector3(st.x, st.h + 0.12, 0))
+      m.position.copy(at)
+      m.rotation.set(0, g.rotation.y, 0) // facing the camera
+      m.visible = true
+    })
+    this.gfx.scene.add(g)
+    this.podium = g
+    this.podiumT = 0
+  }
+  private podiumCam(dt: number): void {
+    this.podiumT += dt
+    const g = this.podium!, cam = this.gfx.camera
+    const a = g.rotation.y + Math.PI + Math.sin(this.podiumT * 0.25) * 0.6
+    cam.position.set(g.position.x + Math.sin(a) * 19, g.position.y + 6, g.position.z + Math.cos(a) * 19)
+    cam.lookAt(g.position.x, g.position.y + 2, g.position.z)
+    if (cam.fov !== 50) { cam.fov = 50; cam.updateProjectionMatrix() }
+  }
+
+  /** On the car screen: the camera circles the car close up, slowly, so you see the whole of it in your paint. */
+  turntable = false
+  private turnA = 0
+  private turn(dt: number): void {
+    this.turnA += dt * 0.35
+    const cam = this.gfx.camera, p = this.car.mesh.position, a = this.car.heading + 2.2 + this.turnA
+    cam.position.set(p.x + Math.sin(a) * 7.2, p.y + 2.1, p.z + Math.cos(a) * 7.2)
+    // aim a little to the car's left on screen, so it sits clear of the car panel
+    const side = this._v.set(Math.cos(a), 0, -Math.sin(a))
+    cam.lookAt(p.x - side.x * 1.6, p.y + 0.6, p.z - side.z * 1.6)
+    if (cam.fov !== 45) { cam.fov = 45; cam.updateProjectionMatrix() }
   }
 
   /** Drive a lap behind the menu. */
@@ -464,7 +579,7 @@ export class KartApp {
     if (ev === 'pickup' && r.isPlayer) this.audio.sfx('shatter', 0.35, 0.4)
     if (ev === 'got' && r.isPlayer) this.audio.playCheckpoint()
     if (ev === 'use' && r.isPlayer) {
-      if (kind === 'turbo' || kind === 'triple') { this.audio.playBoost(); this.chase.kick(14); this.shake.addTrauma(0.2) }
+      if (kind === 'turbo' || kind === 'triple' || kind === 'comet') { this.audio.playBoost(); this.chase.kick(14); this.shake.addTrauma(0.2) }
       else if (kind === 'shield') this.audio.sfx('ring', 0.6)
       else this.audio.sfx('rocketLaunch', 0.35)
     }
@@ -520,6 +635,12 @@ export class KartApp {
     return g
   }
 
+  /** Take every glider off its car (the player's car outlives a race, so it would keep its wings). */
+  private dropWings(): void {
+    for (const g of this.wingsOf.values()) g.parent?.remove(g)
+    this.wingsOf.clear()
+  }
+
   private updateWings(dt: number): void {
     for (const r of this.racers) {
       if (!r.gliding && !this.wingsOf.has(r)) continue
@@ -555,7 +676,11 @@ export class KartApp {
     return d
   }
 
-  private async spawnRivals(difficulty: Difficulty): Promise<void> {
+  private spawnTicket = 0
+  private async spawnRivals(difficulty: Difficulty): Promise<boolean> {
+    // two starts overlapping (a double press, a restart mid-load) used to leave
+    // both sets of rivals on the grid: 8+ cars, pairs splitting from one spot
+    const ticket = ++this.spawnTicket
     const c = this.circuit!, w = this.world!
     for (const car of this.rivalCars) this.gfx.scene.remove(car.mesh)
     this.rivalCars.length = 0
@@ -563,9 +688,10 @@ export class KartApp {
     this.racers.length = 0
     this.racers.push(this.player!)
     let k = 0
-    for (const d of DRIVERS) {
+    for (const d of this.solo ? [] : DRIVERS) {
       const info = CARS.find((x) => x.id === d.car)!
       const model = await this.model(info)
+      if (ticket !== this.spawnTicket) return false
       const car = new Car(undefined, true)
       car.earnNitro = true
       car.canReverse = true
@@ -585,6 +711,7 @@ export class KartApp {
       this.rivals.push(new Rival(r, d, difficulty, this.rand))
       k++
     }
+    return true
   }
 
   /** Grid up and count down. Rivals are optional for tests. */
@@ -597,23 +724,34 @@ export class KartApp {
     this.seenIM = new WeakMap()
     this.scanN = 0
     this.laps = laps
+    this.dropWings()
     this.starting = true
     this.phase = 'idle'
     this.toGrid()
-    try { await this.spawnRivals(difficulty) } finally { this.starting = false }
+    let mine = false
+    try { mine = await this.spawnRivals(difficulty) } finally { this.starting = false }
+    if (!mine) return // a newer start took over
     // anything that moved the car while the rivals loaded: back on the grid
-    const spot = this.circuit!.gridSpot(5)
+    const spot = this.circuit!.gridSpot(this.solo ? 0 : 5)
     this.player!.place(spot.pos, spot.yaw, spot.i)
     this.car.nitro = 0.25
     for (const r of this.racers) r.car.nitro = 0.25
     this.raceMs = 0
     this.finishT = 0
+    this.ended = false
     this.wrongT = 0
     this.leaderLap = 1
+    this.newsLap = 1
+    this.newsT = 0
     this.autoPlayer = null
     this.bestLap = Infinity
     this.buildStartWall()
+    if (this.ghost) this.gfx.scene.remove(this.ghost.mesh)
+    this.ghost = new LapGhost(this.def!.id)
+    this.ghost.setLook(this.car.mesh)
+    this.gfx.scene.add(this.ghost.mesh)
     this.items?.clear()
+    if (this.items) this.items.group.visible = !this.solo
     this.itemShown = ''
     this.ui.setItem(null, false, 0)
     this.effects.clear()
@@ -622,11 +760,14 @@ export class KartApp {
     this.audio.startEngine()
     this.music.start(this.def!.id)
     this.ui.raceStarted()
+    // the place shown is this race's grid slot, not where the last race ended
+    this.place = this.order().indexOf(this.player!) + 1
+    this.ui.setPlace(this.place, this.racers.length)
     this.ui.setLap(1, laps)
     this.ui.setNitro(this.car.nitro, false)
     this.phase = this.noIntro ? 'countdown' : 'intro'
     this.introT = 0
-    if (!this.noIntro) this.ui.toast(this.def!.name.toUpperCase())
+    if (!this.noIntro) this.ui.toast(this.def!.name.toUpperCase() + (this.weatherNow ? `  ·  ${({ rain: 'RAIN', fog: 'FOG', snow: 'SNOWFALL' })[this.weatherNow]}` : ''))
     this.countdownT = 0
     this.countdownStep = 0
     this.revAt = -1
@@ -644,10 +785,15 @@ export class KartApp {
   }
 
   exitRace(): void {
+    this.dropWings()
     if (this.phase === 'replay') this.ui.replay?.(false)
+    if (this.ghost) { this.gfx.scene.remove(this.ghost.mesh); this.ghost = null }
+    if (this.podium) { this.gfx.scene.remove(this.podium); this.podium = null }
     this.phase = 'idle'
     this.tape = []
     this.leaderLap = 1
+    this.newsLap = 1
+    this.newsT = 0
     this.audio.stopEngine()
     this.music.stop()
     this.audio.setLoop('crowd', 0)
@@ -666,7 +812,9 @@ export class KartApp {
     for (const fn of this.frames) fn(f)
     switch (this.phase) {
       case 'idle':
-        if (this.circuit) this.cine.update(this.gfx.camera, dt, this.car.mesh.position, this.car.heading)
+        if (this.podium) this.podiumCam(dt)
+        else if (this.circuit && this.turntable) this.turn(dt)
+        else if (this.circuit) this.cine.update(this.gfx.camera, dt, this.car.mesh.position, this.car.heading)
         this.post.setSpeed(0)
         break
       case 'preview': this.updatePreview(dt); break
@@ -676,7 +824,8 @@ export class KartApp {
       case 'finished': this.updateFinished(dt); break
       case 'replay': this.updateReplay(dt); break
     }
-    if (this.phase === 'racing' || this.phase === 'finished') this.record(dt)
+    // the replay ends a little after the results come up, not whenever you leave them
+    if (this.phase === 'racing' || (this.phase === 'finished' && !this.ended)) this.record(dt)
     // never let a broken number reach the camera: one NaN there and every pixel is lost
     const cp = this.gfx.camera.position, cq = this.gfx.camera.quaternion
     if (!Number.isFinite(cp.x + cp.y + cp.z + cq.x + cq.y + cq.z + cq.w)) {
@@ -828,17 +977,42 @@ export class KartApp {
     this.pairs()
     const press = !!keys.item && !this.itemWas
     this.itemWas = !!keys.item
-    this.stepItems(dt, press, !!keys.brake)
+    if (!this.solo) this.stepItems(dt, press, !!keys.brake)
     this.holdStartWall()
     this.laps_()
+    if (this.ghost && this.phase === 'racing') {
+      const t = (this.raceMs - this.player!.lapStart) / 1000
+      this.ghost.record(t, this.car.mesh)
+      this.ghost.show(t, this.ghostOn)
+    }
     if (this.phase !== 'racing') return
     this.wrongWay(dt)
+    // what changes on the track this lap: a banner, a moment after the lap time
+    const news = this.def?.news
+    if (news && this.leaderLap > this.newsLap) {
+      this.newsLap = this.leaderLap
+      const last = this.laps > 1 && this.leaderLap >= this.laps
+      if (last || this.leaderLap === 2) { this.newsText = last ? news[1] : news[0]; this.newsT = 2.6 }
+    }
+    if (this.newsT > 0) { this.newsT -= dt; if (this.newsT <= 0) this.ui.toast(this.newsText, true) }
     this.shared(dt)
     this.ui.setTime(fmt(this.raceMs))
     this.ui.setMph(Math.round(Math.abs(car.getSpeedMph())))
     this.ui.setNitro(car.nitro, car.boosting)
     const offroad = !pl.onRoad && !pl.air ? 1 : 0
     this.audio.updateDriving({ speed: car.getNormalizedSpeed(), throttle: car.throttle, slip: car.getSlip(), offroad })
+    // what the wheels throw up: from the deck under them, patches of mud or water, or the sea
+    {
+      const deck = pl.onRoad ? pl.path.deck[pl.pi] ?? 0 : -1
+      const patch = this.world?.patchAt(car.position.x, car.position.z)
+      const sea = this.def?.sea !== undefined && car.position.y < this.def.sea + 0.9
+      const ground = this.def?.surfaceAt?.(car.position.x, car.position.z)
+      this.effects.surface = sea || patch === 'mud' && this.def?.id !== 'jungle' ? 'water'
+        : deck === 4 ? 'steel'
+        : deck === 1 || patch === 'mud' || (deck < 0 && (ground === 'sand' || ground === 'mud')) ? 'dirt'
+        : deck === 3 || patch === 'snow' || ground === 'snow' && deck < 0 ? 'snow' : 'road'
+      this.effects.dustTint.copy(this.dust())
+    }
     this.effects.update(car, dt, offroad, car.position.y)
     const boost = car.boosting
     if (boost && !this.wasBoost) { this.audio.playBoost(); this.shake.addTrauma(0.15) }
@@ -946,6 +1120,7 @@ export class KartApp {
       const ev = r.updateLap(this.raceMs, this.laps)
       if (!ev) continue
       if (r.isPlayer) {
+        this.ghost?.lapDone(r.lastLapMs)
         const best = r.lastLapMs < this.bestLap
         this.bestLap = Math.min(this.bestLap, r.lastLapMs)
         if (ev === 'lap') {
@@ -1025,18 +1200,30 @@ export class KartApp {
     this.audio.sfx('cheer')
     this.ui.warn(null)
     this.shake.addTrauma(0.3)
+    if (this.ghost) this.ghost.mesh.visible = false
+    // a win: the moment over the line in slow motion, from beside the track
+    this.won = this.order()[0] === pl
+    this.finishAt.copy(this.car.position)
+    this.car.getForwardDir(this.finishFwd)
     // the car keeps circulating on its own while the others come home
     this.autoPlayer = new Rival(pl, { name: 'You', pace: 0.8, mistakes: 0, bold: 0.2, color: 0, car: 'rotor' }, 'hard', this.rand)
   }
 
-  private updateFinished(dt: number): void {
-    this.finishT += dt
+  private won = false
+  private readonly finishAt = new THREE.Vector3()
+  private readonly finishFwd = new THREE.Vector3()
+  private updateFinished(real: number): void {
+    this.finishT += real
+    const SLOW = 1.9
+    const slow = this.won && this.finishT < SLOW
+    // time runs at a third for the moment of the win, then eases back
+    const dt = this.won ? real * (slow ? 0.28 + 0.72 * THREE.MathUtils.smoothstep(this.finishT, SLOW * 0.6, SLOW) : 1) : real
     const pl = this.player!, car = this.car
     this.autoPlayer!.drive(dt, 0)
     pl.step(dt, this.autoPlayer!.input, true)
     this.stepRivals(dt)
     this.pairs()
-    this.stepItems(dt, false, false)
+    if (!this.solo) this.stepItems(dt, false, false)
     this.raceMs += dt * 1000
     for (const r of this.racers) {
       if (r.finished) continue
@@ -1045,12 +1232,28 @@ export class KartApp {
     this.shared(dt)
     this.audio.updateEngine(car.getNormalizedSpeed() * 0.4)
     this.post.setSpeed(0)
-    const cam = this.gfx.camera, a = this.finishT * 0.25 + car.heading + 2.4
-    cam.position.set(car.position.x + Math.sin(a) * 9, car.position.y + 2.6, car.position.z + Math.cos(a) * 9)
-    cam.lookAt(car.position.x, car.position.y + 1, car.position.z)
-    if (this.finishT > 3 && !this.ended) { this.ended = true; this.endNow() }
+    const cam = this.gfx.camera
+    if (slow) {
+      // low beside the line, a little ahead, watching the car go through
+      const f = this.finishFwd, side = this._v.set(-f.z, 0, f.x)
+      cam.position.set(this.finishAt.x + side.x * 7 + f.x * 9, this.finishAt.y + 1.1, this.finishAt.z + side.z * 7 + f.z * 9)
+      cam.lookAt(car.position.x, car.position.y + 0.9, car.position.z)
+      if (cam.fov !== 42) { cam.fov = 42; cam.updateProjectionMatrix() }
+    } else {
+      const t = this.finishT - (this.won ? SLOW : 0)
+      const a = t * 0.25 + car.heading + 2.4
+      cam.position.set(car.position.x + Math.sin(a) * 9, car.position.y + 2.6, car.position.z + Math.cos(a) * 9)
+      cam.lookAt(car.position.x, car.position.y + 1, car.position.z)
+    }
+    if (this.finishT > (this.won ? 3 + SLOW : 3) && !this.ended) { this.ended = true; this.endNow() }
+    // the race carries on behind the results: refresh the table as cars come home
+    if (this.ended) {
+      this.tableT -= real
+      if (this.tableT <= 0) { this.tableT = 0.5; this.ui.raceUpdate?.(this.resultRows()) }
+    }
   }
   private ended = false
+  private tableT = 0
 
   // ── replays: every car's position and turn, 30 times a second, for the whole race
   private tape: Moment[] = []
@@ -1226,23 +1429,57 @@ export class KartApp {
     this.post.setSpeed(0)
   }
 
+  /** Where everyone stands: real times for those home, the rest still racing. */
+  resultRows(): RaceResultRow[] {
+    return this.order().map((r) => ({ name: r.name, isPlayer: r.isPlayer, timeMs: r.finished ? r.finishMs : 0, finished: r.finished, bestLapMs: r.bestLapMs }))
+  }
+
+  /** The results come up, but nobody stops: the others race on to the line and your car drives itself. */
   private endNow(): void {
-    // anyone still out on track gets the time their pace so far would bring
-    // them home in, so the table is complete the moment you finish
-    const total = this.laps * this.circuit!.count
+    this.tableT = 0.5
+    this.ui.raceEnded(this.resultRows())
+  }
+
+  /** Leave the results: anyone still out gets the time their pace so far would bring them home in. */
+  finalRows(): RaceResultRow[] {
+    const total = this.laps * (this.circuit?.count ?? 1)
     let last = 0
-    const rows = this.order().map((r) => {
+    return this.order().map((r) => {
       let t = r.finishMs
       if (!r.finished) t = Math.max(last + 350, this.raceMs * total / Math.max(r.progress, total * 0.05))
       last = t
       return { name: r.name, isPlayer: r.isPlayer, timeMs: t, finished: true, bestLapMs: r.bestLapMs }
     })
-    this.ended = false
-    this.phase = 'idle'
-    this.audio.stopEngine()
-    this.music.stop()
-    this.ui.raceEnded(rows)
   }
+}
+
+/** A texture's light and shade without its colour, lifted so the darkest is still mid-grey (cached per texture). */
+const greyMaps = new WeakMap<THREE.Texture, THREE.Texture>()
+function greyMap(t: THREE.Texture): THREE.Texture {
+  const done = greyMaps.get(t)
+  if (done) return done
+  const img = t.image as CanvasImageSource & { width: number; height: number }
+  if (!img?.width) return t
+  const cv = document.createElement('canvas')
+  cv.width = img.width; cv.height = img.height
+  const g = cv.getContext('2d')!
+  g.drawImage(img, 0, 0)
+  const px = g.getImageData(0, 0, cv.width, cv.height), d = px.data
+  let max = 1
+  for (let i = 0; i < d.length; i += 4) max = Math.max(max, 0.3 * d[i]! + 0.59 * d[i + 1]! + 0.11 * d[i + 2]!)
+  for (let i = 0; i < d.length; i += 4) {
+    const l = (0.3 * d[i]! + 0.59 * d[i + 1]! + 0.11 * d[i + 2]!) / max
+    const v = Math.round(255 * (0.55 + 0.45 * l))
+    d[i] = d[i + 1] = d[i + 2] = v
+  }
+  g.putImageData(px, 0, 0)
+  const out = new THREE.CanvasTexture(cv)
+  out.colorSpace = t.colorSpace
+  out.flipY = t.flipY
+  out.wrapS = t.wrapS; out.wrapT = t.wrapT
+  out.offset.copy(t.offset); out.repeat.copy(t.repeat)
+  greyMaps.set(t, out)
+  return out
 }
 
 /**
@@ -1260,6 +1497,11 @@ function prepareCar(m: THREE.Object3D, info: CarInfo): void {
     m.traverse((o) => { if (o !== m && re.test(o.name)) gone.push(o) })
     for (const o of gone) o.parent?.remove(o)
   }
+  // wheels under other names (tyre, rotor): give them the name the wheel splitter looks for
+  if (info.wheels) {
+    const re = new RegExp(info.wheels, 'i')
+    m.traverse((o) => { if (re.test(o.name) && !/^wheels_/i.test(o.name)) o.name = `wheels_${o.name}` })
+  }
   splitWheels(m)
   m.traverse((o) => {
     // only a single wheel counts as a wheel: one mesh with all four, or the
@@ -1271,7 +1513,14 @@ function prepareCar(m: THREE.Object3D, info: CarInfo): void {
       const c = x.clone()
       // the car's own paint name would be repainted: rename it unless it's the one to paint
       if (/^paint/i.test(c.name) && c.name !== info.paint) c.name = 'livery'
-      if (info.paint && c.name === info.paint) c.name = 'paint'
+      if (info.paint && c.name === info.paint) {
+        c.name = 'paint'
+        // a painted texture (the Stiletto's is yellow) tints every colour put
+        // over it: white came out yellow, dark blue black. Keep its shading
+        // but drain the colour, so the paint you pick is the paint you get.
+        const std = c as THREE.MeshStandardMaterial
+        if (info.tint && std.map) std.map = greyMap(std.map)
+      }
       // a brake disc or caliper isn't a brake light
       if (/brake/i.test(c.name) && /disc|caliper|pad/i.test(c.name)) c.name = c.name.replace(/brake/gi, 'rotor')
       return c

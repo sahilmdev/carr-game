@@ -1,14 +1,18 @@
 # Nitro Cosmos: game plan
 
-Agreed rules for the kart-style game. The current full race stays as it is, as the Grand Tour.
+Agreed rules for the kart-style game. (The Grand Tour, the old full race, is not part of any cup; it is the fifth tab on the track select.)
 
 ## Structure
-- Menu: Grand Prix or Single Race, then car, then cup or track.
+- Menu (cinematic style): Grand Prix, Single Race or Time Trial, then car, then cup or track.
 - Grand Prix: 4 cups of 4 races, 3 laps each. Trophies unlock the next cup.
 - Single Race: any track, 1, 3 or 5 laps.
-- Single player against 5 simulated rivals. No online play for now.
+- Time Trial: you alone against the clock; your best lap runs as a ghost car (only in this mode).
+- Track select: cup tabs along the top (Q / E to switch, Grand Tour as the fifth tab), the cup's four tracks as numbered cards, and one strip at the bottom with the track name, laps, rival difficulty (hidden in Time Trial) and Race.
+- A field of 6: you against 5 simulated rivals. No online play for now.
+- Pause (Esc or the HUD button): Resume, Restart race (single races only), Settings, Exit to menu.
+- End of a single race: Watch replay, Exit, Play again (Restart or New race). End of a cup race: Watch replay, Exit, Continue. The race keeps running behind the results after you finish.
 - Each race loads only its own assets. Set a size and detail limit per track.
-- Fixed sky and lighting per track. Time and weather options are for the Grand Tour only.
+- Fixed sky and lighting per track. Some daytime tracks can roll weather for a race (rain, fog or snowfall, about 1 race in 3): `TrackDef.weather`.
 - Laps of about 50-60 seconds (changed 2026-11-08 after playtesting: the 25-35 s loops felt tiny). A lap is a journey: it leaves the start, goes somewhere new and comes back another way. You should not see the whole track from one spot.
 - Design driving first: each track gets 2-3 signature moments, at least one fork or shortcut, and a lap change; scenery comes last.
 
@@ -18,6 +22,7 @@ Agreed rules for the kart-style game. The current full race stays as it is, as t
 - Solid things are solid: crash, then reverse out. Small things can break.
 - Reverse is available. A wall behind the grid on lap 1 stops you driving off backwards.
 - A fall returns you to the road near where you fell. No visible checkpoints.
+- The recovery drone never picks you up mid-jump or while you sit on the road; it only comes for a fall, a car that's stuck, or one that's lost. It sets you down a little ahead, or just behind with a run-up if a jump lies in between, so a rescue never carries you over a jump.
 - Laps are checked by hidden progress tracking, so they can't be cheated.
 - Each lap should change something on the track.
 
@@ -40,11 +45,11 @@ Choose every edge on purpose:
 - They should not move as one group or always take the best route.
 
 ## Races
-All 16 are confirmed: Cosmos Bay (strongly elevated road), Rainforest Run, Neon City, Deep Blue (far more scenery), Sky Islands, Ghost Galleon Bay, Gold Rush Line, Bobsleigh Peak, Mars Colony, Blossom Pass, Midnight Carnival, The Great Dam, Skyline Cranes, Solar Crown, Hollow Manor, and the Grand Tour as the finale.
+All 16 are confirmed: Cosmos Bay (strongly elevated road), Rainforest Run, Neon City, Deep Blue (far more scenery), Sky Islands, Ghost Galleon Bay, Volcano Run, Bobsleigh Peak, Mars Colony, Blossom Pass, Midnight Carnival, The Great Dam, Skyline Cranes, Solar Crown, Hollow Manor, Storm Coast, and Solar Crown as the finale. (Volcano Run replaced Gold Rush Line and Storm Coast replaced the Grand Tour, 2026-11-12.)
 
 ## Items and nitro
 - Items are in (2026-11-08). Rows of crystals across the road hand out one item each, weighted by place: leaders get mines, shields and darts; the back gets triple turbos and seekers. Items: turbo, triple turbo, dart (straight, bounces off walls; hold brake to throw behind), seeker (follows the road to the car ahead), mine (dropped behind), shield (takes one hit). A hit spins the car out. Press E or Q. Rivals collect and use them too. Tracks mark rows with `items: true`; a track with none gets three automatic rows.
-- Earned nitro on the new tracks: the tank starts empty and fills from drifts, jumps and clean landings. The Grand Tour keeps its current tank.
+- Earned nitro on the new tracks: the tank starts empty and fills from drifts, jumps and clean landings.
 
 ## Agreed details
 - Commit a local save point before starting. No pushing.
@@ -58,15 +63,15 @@ All 16 are confirmed: Cosmos Bay (strongly elevated road), Rainforest Run, Neon 
 
 ## Cups
 - Comet: Cosmos Bay, Rainforest Run, Blossom Pass, Neon City
-- Nova: Deep Blue, Gold Rush Line, Bobsleigh Peak, Sky Islands
+- Nova: Deep Blue, Volcano Run, Bobsleigh Peak, Sky Islands
 - Eclipse: Midnight Carnival, The Great Dam, Skyline Cranes, Mars Colony
-- Supernova: Hollow Manor, Ghost Galleon Bay, Solar Crown, Grand Tour
+- Supernova: Hollow Manor, Ghost Galleon Bay, Storm Coast, Solar Crown (the finale)
 
 ## What each cup is
 - **Comet Cup: Places you know, pushed further.** Bright, readable, real-world places. Teaches drifting, corner cuts, off-road and recovery. Built and playable.
-- **Nova Cup: The road stops being a road.** Each race changes what you drive on: glass tunnels, a moving train, an ice run, gaps in the sky.
+- **Nova Cup: The road stops being a road.** Each race changes what you drive on: glass tunnels, lava rivers and a steam vent, an ice run, gaps in the sky.
 - **Eclipse Cup: Built by people, falling apart.** Machines and structures that change around you: a coaster, a flooding dam, swinging cranes, a Mars colony.
-- **Supernova Cup: The final trial.** Haunted, sunken and burning worlds, ending with the whole journey in the Grand Tour.
+- **Supernova Cup: The final trial.** Haunted, sunken and storm-lashed worlds, ending with the crown in space.
 
 ## Art kit
 Shared by every track, in `src/kart/art`. New tracks should build from these, not from raw boxes and spheres.
@@ -84,12 +89,13 @@ Shared by every track, in `src/kart/art`. New tracks should build from these, no
 - Jumps: a `gap` in the road is open air, and the road really stops at its edge (until 2026-11-08 a bug let cars drive on across gaps). Distance depends on speed and the take-off slope, so a gap can need a boost. Fall short and the drone brings you back, far enough before the jump for a run-up. Test gaps with `__gaps(id)`.
 - Tricks: tap brake just after take-off for a barrel roll; finish it before landing for a boost, land mid-roll and you lose speed.
 - Gliding: a gap marked `glide` opens wings; you sink slowly and can steer.
-- Forks: `branches` on a track are second roads that leave the loop and rejoin it. Rivals pick a branch by its odds (a track can change the odds by lap, e.g. a gate that opens).
+- Forks: `branches` on a track are second roads that leave the loop and rejoin it. Rivals pick a branch by its odds (a track can change the odds by lap, e.g. a gate that opens). A branch with a jump only a boost clears is taken only with nitro in hand, unless the branch is `bridged` (a moving deck spans the gap, like the Skyline Cranes lift). Rails open only where two roads overlap by a couple of metres, so a fork never leaves a sliver to drop through.
+- Catch-up items: Comet and Storm, for the back of the field. Swinging booms guard some shortcuts.
+- Camera: the horizon stays level through banked bends; only when the car rolls well past any bank (a corkscrew or loop) does the camera roll with it, so it stays above the deck.
 - Moving solids (`World.movers`): the train, rockfalls, snowballs. Rivals look ahead, steer round them and wait for the train.
 
 ## Status
-- All four cups are built: 15 kart tracks in `src/kart/tracks`, plus the Grand Tour as the Supernova Cup finale.
-- The Grand Tour round runs in its own page: the cup is saved in session storage, and the tour's medal comes back as your place (gold 1st, silver 2nd, bronze 3rd, none 6th); the rivals fill the other places by standing.
+- All four cups are built: 16 kart tracks in `src/kart/tracks` (Gold Rush Line's file is kept but no longer registered).
 - Tracks can set `gravity` (Mars uses 13 against the usual 26).
 - Dev-only test helpers live in `src/kart/devtools.ts` (`__look`, `__race`, `__clear`, `__fly`, `__gaps`); they are not in the production build.
 - The Great Dam is rebuilt to the new standard (3.2 km, laps of about 52-60 s): valley town start, hairpin climb, the crest or the narrow service bridge across the dam face, the spillway lip and a glide down the gorge, the turbine hall, a broken bridge you can only clear with a boost, the meander or (from lap 2) the flood channel, and back over the river bridge.
@@ -179,8 +185,26 @@ Shared by every track, in `src/kart/art`. New tracks should build from these, no
 - New engine option: `tunnel` points run inside a hill (no carving, no supports; the track builds the bore).
 - Engine fixes found while building them: cars keep their speed in the air (no braking or drag mid-jump); mud lying on the road now slows you; stacked roads (a road passing over itself) pick the higher deck; steep hillsides block cars like walls; terrain never pokes through raised roads or into jump paths; rivals hold their fork choice until clear of the fork, keep to the middle through it, brake for real bends before jumps, and skip a shortcut they just fell off.
 
+- Round of 2026-11-12:
+  - Volcano Run (3.0 km, laps about 47-53 s): black-sand beach, the east flank in climbing sweeps, round the crater rim over a lava lake and a smoking cone, down the west side over one lava river on a bridge and another off a steam vent (a `lift` zone). Branches: a lava tube off the rim; a cooled flow across the east flank, molten and shut on lap 1, open from lap 2. Last lap: ash, a red sky, and lava bombs (with impact sounds). Ridged flanks and glowing cracks beside the road.
+  - Storm Coast (3.2 km, laps about 49-55 s), the Supernova finale: harbour village (cottages with slate roofs, lit windows), cliff road, lighthouse with a sweeping beam, the sea bridge with a drawbridge that lifts into a ramp (a tilting moving deck), the island, the breakwater where waves shove you sideways. Calm on lap 1, rain and lightning on lap 2, full storm on the last lap (screen flashes, thunder). Branch: a cliff tunnel.
+  - Cars: 8 (Zephyr and Vortex SR replaced Rotor GT and Aurora on 2026-11-13, keeping their ids and stats; then Stiletto V12, Goblin V12, Cheetah, Mohawk, Patriot XR, Meridian GT); every one takes your paint and faces the right way; combined wheel meshes are split so every car's wheels turn; headlight and tail-light glows, and a beam at night.
+  - Rivals tuned per difficulty (speed and catch-up); unfinished rivals get a projected time at the end; last place draws stronger items.
+  - No crowds or grandstands anywhere; full-width start line; loops enter and leave a full deck apart; the corkscrew has lit rails and hoops.
+  - Roads: ground always under every road (no hill through a hairpin), side roads meet the road they join flush, no rails, edge lights or troughs across another road, ragged ground and broken slabs at road gaps.
+  - Night tracks (Manor, Galleon, Carnival) have glowing strips and lamps along both road edges.
+  - Race extras: lap-2 and last-lap banners per track (`TrackDef.news`), slow motion when you win, your best lap as a ghost car in single races (saved per track), surface effects (dust on dirt and snow, spray in water, sparks on steel), a loading card with the track's picture, blurb and a tip, track pictures on the menu tiles (`public/previews`), a turntable on the car screen, a podium at the end of a cup, a Restart / Choose another track choice after a single race.
+  - Test runs open the game with `?mute`, which forces the volume to 0.
+
+- Round of 2026-11-13:
+  - New cars: Zephyr (cartoon sports car, RCC Design, CC BY) and Vortex SR (supercar, SINNIK, CC BY; interior removed and cut to about 90 k triangles). `CarInfo.wheels` names wheel nodes for models that don't call them wheels.
+  - Track select rebuilt with cup tabs and smaller cards; a real pause menu.
+  - Skyline Cranes: rivals now use the crane lift (wider mouth, a rail along the inside of the split, rails at the gate and the landing, rivals wait at the gate instead of being "rescued").
+  - Solar Crown: the camera rolls with the car through the corkscrew.
+  - Storm Coast: a lighter lap 1 (paler sky, thinner fog), red-and-white kerbs, brighter verges, an asphalt sea bridge, and a wind farm out in the bay whose blades spin faster as the storm builds.
+  - Sky Islands: the rock masses under the islands no longer poke out of the cliff faces; glass decks are frosted so the low sky doesn't glare off them.
+
 ## Next
-1. Playtest all four cups: length, forks, jumps, items, tricks.
-2. Hero models (cars, the Gold Rush train, sea life) are still the weakest art; there is no CC0 source for them, so they need Sketchfab CC-BY files you download yourself.
+1. Playtest all four cups by hand: length, forks, jumps, items, tricks, the new tracks, rival difficulty.
+2. Check the new sounds (thunder, lava bombs) and the sound mix in general.
 3. Mars Colony is the heaviest track to draw; trim it further if it stutters.
-4. Later: half-pipe sections, a touch button for items, full replay.

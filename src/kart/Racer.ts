@@ -99,6 +99,8 @@ export class Racer {
   spin = 0
   /** Seconds of shield left: it takes one hit. */
   shield = 0
+  /** Seconds left on a comet run: every hit just bounces off. */
+  cometT = 0
   /** Wings out over a glide drop. */
   gliding = false
   /** Seconds left in a trick spin; set when one was started on this jump. */
@@ -133,6 +135,7 @@ export class Racer {
     this.twistC = null
     this.spin = 0
     this.shield = 0
+    this.cometT = 0
     this.gliding = false
     this.trickT = 0
     this.progress = i - this.circuit.count
@@ -597,6 +600,7 @@ export class Racer {
   /** Struck by an item: a shield takes it, otherwise the car spins out. */
   struck(): boolean {
     if (this.rescue > 0 || this.spin > 0) return false
+    if (this.cometT > 0) return false
     if (this.shield > 0) {
       this.shield = 0
       this.events?.hit?.(this, true)
@@ -614,6 +618,7 @@ export class Racer {
     const car = this.car, p = car.position, c = this.circuit, w = this.world
     this.hitCool -= dt
     this.shield = Math.max(0, this.shield - dt)
+    this.cometT = Math.max(0, this.cometT - dt)
     if (this.rescue > 0) { this.stepRescue(dt); return }
     // a broken number in the car's position (it shouldn't happen): put it back on the road
     if (!Number.isFinite(p.x + p.y + p.z + car.heading + car.getSpeed())) {
@@ -915,24 +920,38 @@ export class Racer {
     // down off a viaduct with no way back up
     const below = !this.onRoad && !this.air && sp.y - p.y > 5 && Math.hypot(sp.x - p.x, sp.z - p.z) < 60
     this.low = below ? this.low + dt : 0
-    const far = Math.hypot(sp.x - p.x, sp.z - p.z) > (this.gliding ? 260 : 150)
+    // (in the air the road being followed lags behind the car: a long jump or
+    // glide is not "far", only one that has gone on far too long)
+    this.airT = this.air ? this.airT + dt : 0
+    const far = Math.hypot(sp.x - p.x, sp.z - p.z) > (this.gliding ? 260 : 150) && (!this.air || this.airT > 5)
     // pushing against something and going nowhere (but not waiting at a gate on purpose)
     this.waiting -= dt
+    // queued for a lift (a bridged gap just ahead): waiting, not stuck
+    if (this.path.bridged && !this.isPlayer) {
+      const g = this.path.gap
+      for (let k = 1; k <= 30; k++) if (g[this.pi + k]) { this.waiting = Math.max(this.waiting, 0.2); break }
+    }
     if (this.waiting > 0) { this.watchT = 0; this.watchAt = this.progress }
     this.stuck = Math.abs(this.car.getSpeed()) < 1.5 && !this.isPlayer && this.spin <= 0 && this.waiting <= 0 ? this.stuck + dt : 0
     // shuffling about without getting anywhere: the drone lifts you out.
     // Rivals get six seconds; you get ten, in case you meant it.
+    // You are never lifted for standing still on the road (you may mean it,
+    // and it only put you back where you were); only when stranded off it.
+    // Never mid-jump either.
     this.watchT += dt
+    if (this.air || (this.isPlayer && this.onRoad)) { this.watchT = 0; this.watchAt = this.progress }
     if (this.watchT > (this.isPlayer ? 10 : 6)) {
       const moved = Math.abs(this.progress - this.watchAt)
       this.watchT = 0
       this.watchAt = this.progress
-      if (moved < (this.isPlayer ? 25 : 30) && !this.finished) { this.startRescue(); return }
+      if (moved < (this.isPlayer ? 25 : 30) && !this.finished) { this.startRescue(true); return }
     }
     if (drowned || lost || far || this.low > 1.4 || p.y < -80 || this.stuck > 3) this.startRescue()
   }
+  private airT = 0
 
-  startRescue(): void {
+  /** @param stranded stuck where it is (not fallen off): set down a little further on, not back */
+  startRescue(stranded = false): void {
     if (this.rescue > 0) return
     this.falls++
     // a little way back from where the road was lost, on the centre of the
@@ -943,7 +962,17 @@ export class Racer {
     if (behind < 0 || behind > 160) { c = this.path; from = c.closed ? (this.pi - 20 + c.count) % c.count : Math.max(0, this.pi - 20) }
     // a road that's shut: back to the main road before it
     if (c.shut && c.join) { from = c.join.from; c = this.circuit }
-    let i = c.closed ? (from - 6 + c.count) % c.count : Math.max(0, from - 6)
+    // set down a little AHEAD of where the road was lost (or of where it's
+    // stuck): being carried back to the same spot was no rescue at all
+    if (stranded) { c = this.path; from = this.pi }
+    const on = stranded ? 30 : 14
+    let i = c.closed ? (from + on) % c.count : Math.min(c.count - 1, from + on)
+    // ...unless that would skip a jump (falling short must not carry you over
+    // it): then just behind, with a run-up, as before
+    for (let k = 0; k <= on; k++) {
+      const j = c.closed ? (from + k) % c.count : Math.min(c.count - 1, from + k)
+      if (c.gap[j]) { i = c.closed ? (from - 6 + c.count) % c.count : Math.max(0, from - 6); break }
+    }
     // never put down over a gap, or on a twist
     for (let k = 0; k < 60 && (c.gap[i] || Math.abs(c.tilt(i)) > 0.04); k++) i = c.closed ? (i - 1 + c.count) % c.count : Math.max(0, i - 1)
     // a jump just ahead: go back only far enough to get up to speed for it

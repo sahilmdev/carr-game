@@ -28,6 +28,10 @@ export class ChaseCamera {
   private readonly _lag = new THREE.Vector3()
   private readonly _prevDesired = new THREE.Vector3()
   private hasPrev = false
+  /** The camera's up: world up, except where the road rolls right over (a corkscrew), where it turns with the car. */
+  private readonly _up = new THREE.Vector3(0, 1, 0)
+  private readonly _carUp = new THREE.Vector3()
+  private readonly _want = new THREE.Vector3()
   /** Seconds for a corner swing to settle (smaller = stiffer). */
   private readonly swing = 0.14
 
@@ -49,6 +53,8 @@ export class ChaseCamera {
   /** Snap instantly to the correct pose (on race start / reset). */
   snap(camera: THREE.PerspectiveCamera, car: Car): void {
     this.leanX = -car.steer * this.sideLean
+    this.followRoll(car, 1)
+    camera.up.copy(this._up)
     this.computeDesired(car)
     camera.position.copy(this._desired)
     this._prevDesired.copy(this._desired)
@@ -61,6 +67,8 @@ export class ChaseCamera {
     // Smooth the lateral lean toward the outside of the turn
     const targetLean = -car.steer * this.sideLean * (0.4 + car.getNormalizedSpeed() * 0.6)
     this.leanX = THREE.MathUtils.lerp(this.leanX, targetLean, 1 - Math.pow(0.002, dt))
+    this.followRoll(car, 1 - Math.pow(0.0005, dt))
+    camera.up.copy(this._up)
 
     this.computeDesired(car)
     // Where the camera sits relative to LAST frame's target. Forward motion
@@ -91,15 +99,29 @@ export class ChaseCamera {
     this._desired.copy(car.position)
     this._desired.addScaledVector(this._forward, -this.distance) // behind
     this._desired.addScaledVector(this._right, this.leanX) // lean outward on turns
-    this._desired.y += this.height
-    // Camera rides the suspension a little: dips on landings and bumps
-    this._desired.y += car.getBodyHeave() * 0.6
+    // above the car along the camera's up (straight up, except in a corkscrew)
+    this._desired.addScaledVector(this._up, this.height + car.getBodyHeave() * 0.6)
   }
 
   private computeLookTarget(car: Car): void {
     car.getForwardDir(this._forward)
     this._lookTarget.copy(car.position)
     this._lookTarget.addScaledVector(this._forward, this.lookAhead)
-    this._lookTarget.y += 2.1 + car.getBodyHeave() * 0.4 - car.getBodyPitch() * 3
+    this._lookTarget.addScaledVector(this._up, 2.1 + car.getBodyHeave() * 0.4 - car.getBodyPitch() * 3)
+  }
+
+  /**
+   * Ordinary banking leaves the horizon level (a rolling horizon read as the
+   * car tipping over). Only once the car is rolled well past any bank, in a
+   * corkscrew, does the camera turn with it, so it stays above the deck
+   * instead of ending up under it, looking at the car through the road.
+   */
+  private followRoll(car: Car, k: number): void {
+    this._carUp.set(0, 1, 0).applyQuaternion(car.mesh.quaternion)
+    const w = THREE.MathUtils.clamp((0.9 - this._carUp.y) / 0.35, 0, 1)
+    this._want.set(0, 1, 0).lerp(this._carUp, w)
+    if (this._want.lengthSq() < 1e-4) this._want.copy(this._carUp)
+    this._want.normalize()
+    this._up.lerp(this._want, k).normalize()
   }
 }

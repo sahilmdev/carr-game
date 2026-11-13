@@ -14,7 +14,7 @@
 
   <!-- ============ SPLASH SCREEN ============ -->
   <div id="loading" class="screen loading">
-    <div class="loading-logo">NITRO <span>COSMOS</span></div>
+    <div class="loading-logo">Nitro Cosmos</div>
     <div class="loading-bar"><div id="loading-fill" class="loading-fill"></div></div>
     <div id="loading-label" class="loading-label">LOADING WORLD</div>
   </div>
@@ -24,16 +24,16 @@
 
       <section class="lobby-screen" data-screen="title">
         <div class="splash-vignette"></div>
+        <div id="live-tag" class="live-tag"></div>
         <div class="title-col">
-          <div class="logo-container">
-            <div class="logo-horizon">NITRO</div>
-            <div class="logo-drive">Cosmos</div>
-          </div>
+          <h1 class="cine-title">Nitro Cosmos</h1>
           <nav class="title-menu" aria-label="Main menu">
-            <button id="go-gp" class="menu-item" data-primary><span>Grand Prix</span><small>Win cups, unlock more</small></button>
-            <button id="go-single" class="menu-item"><span>Single Race</span><small>Any track, your choice of laps</small></button>
+            <button id="go-single" class="menu-item" data-primary><span>Race</span><small>Any track, your choice of laps</small></button>
+            <button id="go-gp" class="menu-item"><span>Grand Prix</span><small>Win cups, unlock more</small></button>
+            <button id="go-trial" class="menu-item"><span>Time Trial</span><small>Just you, the clock and your ghost</small></button>
             <button id="go-trophies" class="menu-item"><span>Trophies</span><small>Cups and challenges</small></button>
-            <button id="settings-open" class="menu-item minor"><span>Settings</span></button>
+            <button id="settings-open" class="menu-item minor"><span>Settings</span><small>Graphics, sound and camera</small></button>
+            <button id="go-credits" class="menu-item minor"><span>Credits</span><small>Who made what</small></button>
           </nav>
         </div>
         <div class="control-hints">
@@ -41,7 +41,8 @@
           <span><kbd>&uarr;</kbd><kbd>&darr;</kbd> Drive</span>
           <span><kbd>Shift</kbd> Nitro</span>
           <span><kbd>E</kbd> Item</span>
-          <span><kbd>Space</kbd> mid-air: Trick</span>
+          <span><kbd>&darr;</kbd>+<kbd>E</kbd> Throw back</span>
+          <span><kbd>Space</kbd> Trick</span>
           <span><kbd>P</kbd> Photo</span>
         </div>
       </section>
@@ -77,15 +78,12 @@
       </section>
 
       <section class="lobby-screen" data-screen="tracks">
-        <header class="lobby-head"><button class="back-btn" data-back aria-label="Back">&larr;</button><h1>Single Race</h1>
-          <div id="difficulty-picker-2" class="tod-picker head-picker left" role="radiogroup" aria-label="Difficulty">
-            <button class="tod-btn" data-level="easy" role="radio">Easy</button>
-            <button class="tod-btn" data-level="medium" role="radio">Medium</button>
-            <button class="tod-btn" data-level="hard" role="radio">Hard</button>
-          </div></header>
-        <div id="track-list" class="track-list"></div>
-        <div class="bottom-panel">
-          <div class="bottom-title"><h2 id="track-title"></h2><p id="track-blurb"></p></div>
+        <div class="splash-vignette"></div>
+        <header class="lobby-head"><button class="back-btn" data-back aria-label="Back">&larr;</button><h1 id="tracks-title">Single Race</h1>
+          <nav id="cup-tabs" class="cup-tabs" role="tablist" aria-label="Cups"></nav></header>
+        <div id="track-list" class="track-cards" role="radiogroup" aria-label="Track"></div>
+        <div class="race-strip">
+          <div class="bottom-title"><p id="track-cup" class="strip-kicker"></p><h2 id="track-title"></h2><p id="track-blurb"></p></div>
           <div class="race-options">
             <div class="opt-row"><span class="opt-label">Laps</span>
               <div id="laps-picker" class="tod-picker" role="radiogroup" aria-label="Race length">
@@ -94,7 +92,14 @@
                 <button class="tod-btn" data-laps="5" role="radio">5</button>
               </div>
             </div>
-            <div id="tour-options">
+            <div class="opt-row" id="difficulty-row"><span class="opt-label">Rivals</span>
+              <div id="difficulty-picker-2" class="tod-picker" role="radiogroup" aria-label="Difficulty">
+                <button class="tod-btn" data-level="easy" role="radio">Easy</button>
+                <button class="tod-btn" data-level="medium" role="radio">Medium</button>
+                <button class="tod-btn" data-level="hard" role="radio">Hard</button>
+              </div>
+            </div>
+            <div id="tour-options" class="hidden">
               <div class="opt-row"><span class="opt-label">Time</span>
                 <div id="tod-picker" class="tod-picker" role="radiogroup" aria-label="Time of day">
                   <button class="tod-btn" data-tod="morning" role="radio">Morning</button>
@@ -133,6 +138,12 @@
         </div>
       </section>
 
+      <section class="lobby-screen" data-screen="credits">
+        <div class="splash-vignette full"></div>
+        <header class="lobby-head"><button class="back-btn" data-back aria-label="Back">&larr;</button><h1>Credits</h1></header>
+        <div id="credits-list" class="credits-list"></div>
+      </section>
+
       <div id="lobby-notice" class="lobby-notice hidden" role="dialog" aria-modal="true" aria-labelledby="notice-title">
         <div class="notice-box">
           <h2 id="notice-title"></h2>
@@ -163,7 +174,7 @@
     <div id="area-card" class="area-card hidden"><div id="area-title" class="area-title"></div><div id="area-sub" class="area-sub"></div></div>
     <div class="hud-top-right">
       <button id="hud-photo-btn" class="hud-btn" aria-label="Photo mode" title="Photo mode"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3.5L9 5.5h6L16.5 8H20v11H4z"/><circle cx="12" cy="13" r="3.4"/></svg></button>
-      <button id="hud-settings-btn" class="hud-btn" aria-label="Settings" title="Settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg></button>
+      <button id="hud-settings-btn" class="hud-btn" aria-label="Pause" title="Pause (Esc)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg></button>
       <button id="mute-btn" class="hud-btn" aria-label="Toggle sound" title="Sound"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path class="snd-on" d="M15.5 9a4 4 0 0 1 0 6M18 6.5a8 8 0 0 1 0 11"/><path class="snd-off" d="M16 9.5l5 5M21 9.5l-5 5"/></svg></button>
       <button id="exit-btn" class="hud-btn" aria-label="Exit race" title="Exit race"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     </div>
@@ -198,11 +209,15 @@
       <p id="end-round" class="result-kicker"></p>
       <h2 id="end-race-name"></h2>
       <div id="end-table" class="end-table"></div>
-      <div class="notice-actions">
-        <button id="end-next" class="go-btn">Next race</button>
-        <button id="end-other" class="go-btn alt hidden">Choose another track</button>
+      <div id="end-main" class="notice-actions">
+        <button id="end-next" class="go-btn">Continue</button>
         <button id="end-replay" class="back-link">Watch replay</button>
         <button id="end-exit" class="back-link">Exit to menu</button>
+      </div>
+      <div id="end-again" class="notice-actions hidden">
+        <button id="end-restart" class="go-btn">Restart this race</button>
+        <button id="end-other" class="go-btn alt">New race</button>
+        <button id="end-again-back" class="back-link">Back</button>
       </div>
     </div>
   </div>
@@ -219,7 +234,15 @@
       <div class="notice-actions"><button id="cup-end-done" class="go-btn">Back to menu</button></div>
     </div>
   </div>
-  <div id="track-loading" class="track-loading hidden"><span>Loading</span><strong id="track-loading-name"></strong></div>
+  <div id="track-loading" class="track-loading hidden">
+    <div class="tl-card">
+      <span>Loading</span>
+      <strong id="track-loading-name"></strong>
+      <p id="track-loading-blurb"></p>
+      <div class="tl-bar"><i></i></div>
+      <p id="track-loading-tip" class="tl-tip"></p>
+    </div>
+  </div>
 
   <!-- ============ COUNTDOWN ============ -->
   <div id="countdown" class="screen hidden">
@@ -274,6 +297,21 @@
       <button id="photo-exit" class="settings-link">EXIT (P)</button>
     </div>
     <div id="photo-flash" class="photo-flash"></div>
+  </div>
+
+  <!-- ============ PAUSE ============ -->
+  <div id="pause" class="pause hidden" role="dialog" aria-modal="true" aria-labelledby="pause-title">
+    <div class="pause-col">
+      <p id="pause-kicker" class="result-kicker"></p>
+      <h2 id="pause-title">Paused</h2>
+      <nav class="pause-menu">
+        <button id="pause-resume" class="menu-item" data-primary><span>Resume</span></button>
+        <button id="pause-restart" class="menu-item"><span>Restart race</span></button>
+        <button id="pause-settings" class="menu-item"><span>Settings</span></button>
+        <button id="pause-exit" class="menu-item"><span>Exit to menu</span></button>
+      </nav>
+      <p class="pause-hint"><kbd>Esc</kbd> resume</p>
+    </div>
   </div>
 
   <!-- ============ SETTINGS ============ -->

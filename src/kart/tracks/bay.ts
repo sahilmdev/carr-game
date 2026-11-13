@@ -86,6 +86,8 @@ const POINTS: TrackPoint[] = [
 export const bay: TrackDef = {
   id: 'bay',
   name: 'Cosmos Bay',
+  news: ["WIND'S UP - WAVES ON THE CAUSEWAY", 'STORM SWELL - THE CAUSEWAY FLOODS'],
+  weather: ['rain', 'fog'],
   ambience: 'coast',
   width: 18,
   bank: 3.2,

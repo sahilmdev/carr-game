@@ -120,6 +120,8 @@ function terrain(x: number, z: number): number {
 export const bobsleigh: TrackDef = {
   id: 'bobsleigh',
   name: 'Bobsleigh Peak',
+  news: ['SNOWBALLS IN THE CHUTE', 'BLIZZARD - THE ICE IS CRACKING'],
+  weather: ['snow'],
   ambience: 'snow',
   width: 15,
   bank: 6,

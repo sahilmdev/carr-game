@@ -339,6 +339,7 @@ const POINTS: TrackPoint[] = [
 export const deep: TrackDef = {
   id: 'deep',
   name: 'Deep Blue',
+  news: ['THE TUBE IS LEAKING', 'EMERGENCY POWER'],
   ambience: 'underwater',
   width: 17,
   bank: 1.4,

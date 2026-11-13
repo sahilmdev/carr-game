@@ -39,8 +39,17 @@ function roots(k: BuildKit): void {
     for (let q = 0; q < 46; q++) {
       const a = d.rand() * 6.28, u = Math.sqrt(d.rand()) * 0.86
       const x = s.x + Math.cos(a) * s.rx * u, z = s.z + Math.sin(a) * s.rz * u
-      const size = 26 + (1 - u) * 42 + d.rand() * 20, tall = (1 - u * 0.7) * (70 + d.rand() * 110)
-      m.add(rock, trs(x, s.y - 14 - tall / 2 + 2, z, d.rand() * 6, new THREE.Vector3(size, tall, size), Math.PI), [0x8a7a68, 0x7a6a5c, 0x6e6052][q % 3]!)
+      // (its radius is `size`: kept inside the island's outline, or the outer masses stuck out of the cliff faces as grey slabs)
+      const size = Math.min(26 + (1 - u) * 42 + d.rand() * 20, (1 - u) * Math.min(s.rx, s.rz) * 0.9 + 4), tall = (1 - u * 0.7) * (70 + d.rand() * 110)
+      // the top of the mass stays well under the ground over its whole width
+      // (and under any road cut into it): its flat cap poked up through the
+      // island edges as grey shards where the bridges come in
+      // (open air off the island's edge reads as very low ground: skip it, the cap only has to hide under land)
+      let ground = Math.max(k.world.terrainAt(x, z), s.y - 30)
+      for (let e = 0; e < 6; e++) { const g = k.world.terrainAt(x + Math.cos(e) * size * 0.6, z + Math.sin(e) * size * 0.6); if (g > s.y - 30) ground = Math.min(ground, g) }
+      for (const pth of k.circuit.all) for (const j of pth.near(x, z) ?? []) if (Math.hypot(pth.samples[j]!.x - x, pth.samples[j]!.z - z) < size * 0.7 + pth.widths[j]! / 2) ground = Math.min(ground, pth.samples[j]!.y - 4)
+      const top = Math.min(s.y - 12, ground - 8 - size * 0.45)
+      m.add(rock, trs(x, top - tall / 2, z, d.rand() * 6, new THREE.Vector3(size, tall, size), Math.PI), [0x8a7a68, 0x7a6a5c, 0x6e6052][q % 3]!)
     }
   }
   place(k, m, surface('rock'), false)
@@ -194,6 +203,8 @@ const POINTS: TrackPoint[] = [
 export const sky: TrackDef = {
   id: 'sky',
   name: 'Sky Islands',
+  news: ['CROSSWIND', 'GALE - ROCKS ON THE HIGHWAY'],
+  weather: ['fog'],
   ambience: 'sky',
   width: 17,
   bank: 2.4,
@@ -255,23 +266,24 @@ export const sky: TrackDef = {
     roots(k)
 
     const land = (_x: number, _z: number, y: number) => y > 30
-    forest(k, 'oak', d.spots(110, 5, 90, { clear: 5, test: land }), { scale: [0.65, 1.05], tints: [0xd8ecb0, 0xc8e4a0, 0xe4f0bc] })
+    forest(k, 'oak', d.spots(110, 8, 90, { clear: 9, test: land }), { scale: [0.65, 1.05], tints: [0xd8ecb0, 0xc8e4a0, 0xe4f0bc] })
     forest(k, 'pine', d.spots(70, 10, 100, { clear: 8, test: land }), { scale: [0.6, 1], tints: [0xdce8d0, 0xd0e0c4] })
-    forest(k, 'cherry', d.spots(40, 5, 60, { clear: 5, test: land }), { scale: [0.8, 1.2], tints: [0xffffff, 0xffe8f0] })
+    forest(k, 'cherry', d.spots(40, 8, 60, { clear: 9, test: land }), { scale: [0.8, 1.2], tints: [0xffffff, 0xffe8f0] })
     // the far islands are wooded too
     for (const s of ISLES.slice(4)) {
       const list: THREE.Vector3[] = []
       for (let q = 0; q < 70; q++) {
         const a = d.rand() * 6.28, u = Math.sqrt(d.rand()) * 0.8, x = s.x + Math.cos(a) * s.rx * u, z = s.z + Math.sin(a) * s.rz * u
         const y = w.terrainAt(x, z)
-        if (y > 20) list.push(new THREE.Vector3(x, y, z))
+        // (the roads cross some of these islands too: keep their trees off the tarmac)
+        if (y > 20 && d.roadGap(x, z) > 10) list.push(new THREE.Vector3(x, y, z))
       }
       forest(k, 'oak', list, { scale: [0.8, 1.3], solid: 0, tints: [0xd8ecb0, 0xc8e4a0] })
     }
     grass(k, { density: 3.6, reach: 24, height: [0.45, 0.95], colors: [0x9ab864, 0x8aac58, 0xb0c470, 0xa4bc68], test: land })
     d.prop('rock_07', d.spots(36, 7, 60, { clear: 7, test: land }).map((s) => trs(s.x, s.y, s.z, d.rand() * 6, 2 + d.rand() * 2)), 1.2)
-    d.prop('bk:island_tree_01', d.spots(22, 6, 60, { clear: 6, test: land }).map((s) => trs(s.x, s.y - 0.2, s.z, d.rand() * 6, 1.5 + d.rand() * 0.8)), 0.2)
-    d.prop('bk:island_tree_02', d.spots(22, 6, 60, { clear: 6, test: land }).map((s) => trs(s.x, s.y - 0.2, s.z, d.rand() * 6, 1.7 + d.rand() * 0.8)), 0.2)
+    d.prop('bk:island_tree_01', d.spots(22, 10, 60, { clear: 11, test: land }).map((s) => trs(s.x, s.y - 0.2, s.z, d.rand() * 6, 1.5 + d.rand() * 0.8)), 0.2)
+    d.prop('bk:island_tree_02', d.spots(22, 10, 60, { clear: 11, test: land }).map((s) => trs(s.x, s.y - 0.2, s.z, d.rand() * 6, 1.7 + d.rand() * 0.8)), 0.2)
     d.prop('shrub_04', d.spots(70, 2, 40, { clear: 2, test: land }).map((s) => trs(s.x, s.y, s.z, d.rand() * 6, 1.2 + d.rand())))
     crates(d, d.spots(10, 2, 7, { from: 0.02, to: 0.15, clear: 1.5 }), 0xc8a878)
     ruins(k, [{ x: 240, z: 40, a: 0.3 }, { x: 480, z: -250, a: 1.2 }, { x: 200, z: -850, a: 0.7 }, { x: -520, z: -280, a: 2 }, { x: -380, z: -10, a: 1.5 }, { x: 60, z: 70, a: 2.8 }, { x: -300, z: -680, a: 0.4 }])

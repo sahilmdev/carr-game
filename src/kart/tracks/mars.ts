@@ -58,6 +58,7 @@ function dome(k: BuildKit, x: number, z: number, r: number, inside = false): voi
 export const mars: TrackDef = {
   id: 'mars',
   name: 'Mars Colony',
+  news: ['DUST STORM', 'LAUNCH - THE STORM THICKENS'],
   ambience: 'desert',
   width: 17,
   bank: 2.4,

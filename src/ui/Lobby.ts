@@ -1,8 +1,9 @@
 import { CARS, CUPS, GRAND_TOUR, TRACKS, cupOpen, cupTrophies, saveCar, savedCar, trackById, type CarInfo, type CupInfo, type TrackInfo } from '../game/Catalog'
 import { CHALLENGES, doneChallenges } from '../game/Progress'
+import { ASSET_CREDITS } from './credits'
 
-type ScreenName = 'title' | 'car' | 'cups' | 'tracks' | 'trophies'
-type Mode = 'gp' | 'single'
+type ScreenName = 'title' | 'car' | 'cups' | 'tracks' | 'trophies' | 'credits'
+type Mode = 'gp' | 'single' | 'trial'
 export type Difficulty = 'easy' | 'medium' | 'hard'
 
 export interface LobbyHost {
@@ -10,8 +11,10 @@ export interface LobbyHost {
   setCar(c: CarInfo): void | Promise<void>
   preview(t: TrackInfo): Promise<void>
   stopPreview(): Promise<void>
+  /** The car screen is open: show the car close up, turning. */
+  carView?(on: boolean): void
   startCup(c: CupInfo, d: Difficulty): void
-  startTrack(t: TrackInfo, laps: number, d: Difficulty): void
+  startTrack(t: TrackInfo, laps: number, d: Difficulty, trial?: boolean): void
   startTour(): void
 }
 
@@ -46,6 +49,8 @@ export class Lobby {
   constructor(private readonly host: LobbyHost) {
     this.on('go-gp', () => { this.mode = 'gp'; this.show('car') })
     this.on('go-single', () => { this.mode = 'single'; this.show('car') })
+    this.on('go-trial', () => { this.mode = 'trial'; this.show('car') })
+    this.on('go-credits', () => this.show('credits'))
     this.on('go-trophies', () => this.show('trophies'))
     this.on('car-next', () => this.show(this.mode === 'gp' ? 'cups' : 'tracks'))
     this.on('cup-start', () => this.startCup())
@@ -101,6 +106,7 @@ export class Lobby {
 
   reset(): void {
     this.previewing = ''
+    this.showcaseId = ''
     this.show('title')
   }
 
@@ -114,10 +120,13 @@ export class Lobby {
     window.clearInterval(this.cycle)
     this.screen = s
     this.root.querySelectorAll<HTMLElement>('.lobby-screen').forEach((el) => el.classList.toggle('active', el.dataset['screen'] === s))
-    if (s === 'title' || s === 'car' || s === 'trophies') this.stopPreview()
+    if (s === 'title') this.showcase()
+    else if (s === 'car' || s === 'trophies' || s === 'credits') this.stopPreview()
     if (s === 'car') this.drawCars()
+    this.host.carView?.(s === 'car')
     if (s === 'cups') this.drawCups()
     if (s === 'tracks') this.drawTracks()
+    if (s === 'credits') this.drawCredits()
     if (s === 'trophies') this.drawTrophies()
     window.requestAnimationFrame(() => {
       const first = this.root.querySelector<HTMLElement>('.lobby-screen.active [data-primary]') ?? this.focusables()[0]
@@ -133,6 +142,13 @@ export class Lobby {
   private onKey(e: KeyboardEvent): void {
     if (!this.open) return
     if (e.code === 'Escape' || e.code === 'Backspace') { e.preventDefault(); this.back(); return }
+    // Q / E: the cup tab to the left / right
+    if (this.screen === 'tracks' && (e.code === 'KeyQ' || e.code === 'KeyE')) {
+      e.preventDefault()
+      const tabs = Array.from(document.querySelectorAll<HTMLButtonElement>('#cup-tabs .cup-tab'))
+      tabs[(this.tab + (e.code === 'KeyE' ? 1 : -1) + tabs.length) % tabs.length]?.click()
+      return
+    }
     const step = e.code === 'ArrowRight' || e.code === 'ArrowDown' ? 1 : e.code === 'ArrowLeft' || e.code === 'ArrowUp' ? -1 : 0
     if (!step) return
     e.preventDefault()
@@ -159,14 +175,6 @@ export class Lobby {
     const blurb = document.getElementById('car-blurb')!
     blurb.textContent = this.car.blurb
     // the model's author, as its licence asks
-    let credit = document.getElementById('car-credit')
-    if (!credit) {
-      credit = document.createElement('p')
-      credit.id = 'car-credit'
-      credit.style.cssText = 'margin-top:6px;font-size:12px;opacity:0.6'
-      blurb.after(credit)
-    }
-    credit.textContent = this.car.credit ? `Model: ${this.car.credit}` : ''
     const bars = document.getElementById('car-bars')!
     bars.innerHTML = ''
     for (const [label, v] of [['Top speed', this.car.bars.speed], ['Acceleration', this.car.bars.accel], ['Grip', this.car.bars.grip], ['Drift', this.car.bars.drift]] as const) {
@@ -197,6 +205,17 @@ export class Lobby {
     })
   }
 
+  /** Behind the title: a random track, the camera following a car round it, its name in the corner. */
+  private showcaseId = ''
+  private showcase(): void {
+    const pool = TRACKS.filter((t) => t.built && t.id !== GRAND_TOUR.id)
+    if (!pool.length) return
+    if (!this.showcaseId) this.showcaseId = pool[Math.floor(Math.random() * pool.length)]!.id
+    const t = trackById(this.showcaseId)
+    document.getElementById('live-tag')!.innerHTML = `<i></i>Live · ${t.name}`
+    this.preview(t)
+  }
+
   private stopPreview(): void {
     if (!this.previewing) return
     this.previewing = ''
@@ -209,6 +228,8 @@ export class Lobby {
     b.className = 'track-tile'
     b.style.setProperty('--a', t.tint[0])
     b.style.setProperty('--b', t.tint[1])
+    // a picture of the track, over its colours (they show if the picture is missing)
+    b.style.setProperty('--pic', `url("${import.meta.env.BASE_URL}previews/${t.id}.jpg")`)
     b.setAttribute('aria-pressed', String(selected))
     b.innerHTML = `<span class="track-name">${t.name}</span>${t.built ? '' : '<span class="track-tag">Coming soon</span>'}`
     b.addEventListener('click', onPick)
@@ -263,26 +284,74 @@ export class Lobby {
   private pickTrack(t: TrackInfo): void {
     this.track = t
     this.root.querySelectorAll('#track-list .track-tile').forEach((el) => {
-      el.setAttribute('aria-pressed', String(el.querySelector('.track-name')!.textContent === t.name))
+      const on = el.querySelector('.track-name')!.textContent === t.name
+      el.setAttribute('aria-pressed', String(on))
+      el.setAttribute('aria-checked', String(on))
     })
+    const cup = CUPS.find((c) => c.races.includes(t.id))
+    document.getElementById('track-cup')!.textContent = cup ? `${cup.name}  ·  Race ${cup.races.indexOf(t.id) + 1} of ${cup.races.length}` : 'The full journey'
     document.getElementById('track-title')!.textContent = t.name
     document.getElementById('track-blurb')!.textContent = t.blurb
     document.getElementById('tour-options')!.classList.toggle('hidden', t.id !== GRAND_TOUR.id)
     this.preview(t)
   }
 
+  /** Which cup's tab is open on the track screen (the Grand Tour has its own, last). */
+  private tab = 0
   private drawTracks(): void {
+    // the same screen for a race and a time trial; a trial has no rivals, so no difficulty
+    const trial = this.mode === 'trial'
+    document.getElementById('tracks-title')!.textContent = trial ? 'Time Trial' : 'Single Race'
+    document.getElementById('difficulty-row')!.classList.toggle('hidden', trial)
+    ;(document.getElementById('track-start') as HTMLButtonElement).textContent = trial ? 'Start' : 'Race'
+    // open on the cup that holds the chosen track
+    const k = CUPS.findIndex((c) => c.races.includes(this.track.id))
+    this.tab = this.track.id === GRAND_TOUR.id ? CUPS.length : k >= 0 ? k : 0
+    this.drawTabs()
+    this.drawCards()
+    this.pickTrack(this.track)
+  }
+
+  private drawTabs(): void {
+    const box = document.getElementById('cup-tabs')!
+    box.innerHTML = ''
+    const names = [...CUPS.map((c) => c.name.replace(/ Cup$/, '')), 'Grand Tour']
+    names.forEach((n, k) => {
+      const b = document.createElement('button')
+      b.className = 'cup-tab'
+      b.setAttribute('role', 'tab')
+      b.setAttribute('aria-selected', String(k === this.tab))
+      if (k < CUPS.length) b.style.setProperty('--cup', CUPS[k]!.color)
+      b.textContent = n
+      b.addEventListener('click', () => {
+        this.tab = k
+        this.drawTabs()
+        this.drawCards()
+        const first = k < CUPS.length ? trackById(CUPS[k]!.races[0]!) : GRAND_TOUR
+        this.pickTrack(first)
+      })
+      box.append(b)
+    })
+  }
+
+  private drawCards(): void {
     const box = document.getElementById('track-list')!
     box.innerHTML = ''
-    for (const t of TRACKS) box.append(this.tile(t, () => this.pickTrack(t), false))
-    this.pickTrack(this.track)
+    const list = this.tab < CUPS.length ? CUPS[this.tab]!.races.map((id) => trackById(id)) : [GRAND_TOUR]
+    list.forEach((t, n) => {
+      const card = this.tile(t, () => this.pickTrack(t), t.id === this.track.id)
+      card.classList.add('track-card')
+      card.setAttribute('role', 'radio')
+      card.insertAdjacentHTML('afterbegin', `<span class="card-num">${this.tab < CUPS.length ? n + 1 : ''}</span>`)
+      box.append(card)
+    })
   }
 
   private startTrack(): void {
     if (this.track.id === GRAND_TOUR.id) { this.host.startTour(); return }
     if (!this.track.built) { this.showNotice(`${this.track.name} isn't built yet`, 'This one is still to come.'); return }
     this.previewing = ''
-    this.host.startTrack(this.track, this.laps, this.difficulty)
+    this.host.startTrack(this.track, this.laps, this.difficulty, this.mode === 'trial')
   }
 
   private showNotice(title: string, text: string): void {
@@ -290,6 +359,23 @@ export class Lobby {
     document.getElementById('notice-text')!.textContent = text
     this.notice.classList.remove('hidden')
     document.getElementById('notice-back')!.focus()
+  }
+
+  // ── credits: every model and asset's author, as their licences ask ──
+  private drawCredits(): void {
+    const box = document.getElementById('credits-list')!
+    box.innerHTML = ''
+    const add = (head: string, rows: string[]) => {
+      if (!rows.length) return
+      const sec = document.createElement('section')
+      sec.innerHTML = `<h2>${head}</h2>`
+      const ul = document.createElement('ul')
+      for (const r of rows) { const li = document.createElement('li'); li.textContent = r; ul.append(li) }
+      sec.append(ul)
+      box.append(sec)
+    }
+    add('Cars', CARS.filter((c) => c.credit).map((c) => `${c.name}: ${c.credit}`))
+    add('Tracks and scenery', ASSET_CREDITS)
   }
 
   // ── trophies ──

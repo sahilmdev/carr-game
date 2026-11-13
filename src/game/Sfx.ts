@@ -4,7 +4,7 @@
  */
 export type SfxName =
   | 'crack' | 'shatter' | 'grate' | 'boom' | 'eruption' | 'whumpf' | 'thud' | 'ring' | 'gust'
-  | 'rocketLaunch' | 'rockfall' | 'rockImpact' | 'sting' | 'fail' | 'whale' | 'splash' | 'firework' | 'cheer' | 'meltdown'
+  | 'rocketLaunch' | 'rockfall' | 'rockImpact' | 'sting' | 'fail' | 'whale' | 'splash' | 'firework' | 'cheer' | 'meltdown' | 'thunder'
 export type LoopName = 'lava' | 'avalanche' | 'storm' | 'rocket' | 'crowd'
 type BedName = 'sea' | 'deep' | 'space' | 'wind' | 'magma' | 'insects' | 'city'
 
@@ -163,6 +163,13 @@ export class SoundFx {
         this.tone('sine', 95, 38, 0.55 * v, 0.8)
         this.burst('lowpass', 300, 70, 0.8, 0.55 * v, 0.03, 1.2)
         for (let k = 0; k < 6; k++) this.burst('bandpass', 1800, 900, 3, 0.1 * v, 0.002, 0.05, 0.2 + r() * 0.6)
+        break
+      case 'thunder':
+        // a sharp crack, then the long rolling rumble
+        this.burst('highpass', 1800, 3200, 0.7, 0.35 * v, 0.004, 0.25)
+        this.burst('lowpass', 420, 60, 0.7, 0.75 * v, 0.08, 3.6, 0.05)
+        for (let k = 0; k < 5; k++) this.burst('lowpass', 260 + r() * 200, 60, 0.8, (0.3 + r() * 0.3) * v, 0.15, 1.2 + r() * 0.8, 0.3 + k * 0.45)
+        this.tone('sine', 48, 28, 0.5 * v, 3.2, 0.1, 0.2)
         break
       case 'thud':
         this.tone('sine', 125, 52, 0.5 * v, 0.28)

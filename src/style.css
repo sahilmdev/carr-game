@@ -1019,7 +1019,7 @@ html, body {
 .bottom-title h2 { font-family: var(--logo-font); font-style: italic; font-weight: 800; font-size: clamp(26px, 4.4vh, 38px); line-height: 1; text-transform: uppercase; }
 .bottom-title p { margin-top: 3px; font-size: 14px; line-height: 1.3; color: rgba(255, 255, 255, 0.85); }
 .cup-races { flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; min-width: 0; }
-.track-tile { position: relative; display: flex; flex-direction: column; justify-content: flex-end; align-items: flex-start; gap: 2px; min-height: 66px; padding: 8px 10px; text-align: left; border: 0; border-radius: 4px; background: linear-gradient(135deg, var(--a), var(--b)); box-shadow: inset 0 -44px 34px -18px rgba(0, 0, 0, 0.72); transition: transform 0.12s; }
+.track-tile { position: relative; display: flex; flex-direction: column; justify-content: flex-end; align-items: flex-start; gap: 2px; min-height: 66px; padding: 8px 10px; text-align: left; border: 0; border-radius: 4px; background: var(--pic) center / cover no-repeat, linear-gradient(135deg, var(--a), var(--b)); box-shadow: inset 0 -44px 34px -18px rgba(0, 0, 0, 0.72), inset 0 0 0 2px color-mix(in srgb, var(--a) 70%, transparent); transition: transform 0.12s; min-height: 78px; }
 .track-tile:hover { transform: translateY(-2px); }
 .track-tile[aria-pressed="true"] { outline: 3px solid #fff; outline-offset: 1px; }
 .track-name { font-size: 14px; font-weight: 700; line-height: 1.1; }
@@ -1082,6 +1082,16 @@ html, body {
 .track-loading { position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; background: #05060c; color: #fff; }
 .track-loading span { font-size: 13px; letter-spacing: 0.2em; text-transform: uppercase; opacity: 0.7; }
 .track-loading strong { font-family: var(--logo-font); font-style: italic; font-weight: 800; font-size: 44px; text-transform: uppercase; }
+/* the loading card: the track's own colours and picture behind its name */
+.track-loading { background: linear-gradient(160deg, var(--tl-a, #1a1030) 0%, var(--tl-b, #05060c) 75%); background-size: cover; }
+.track-loading.has-pic { background: linear-gradient(180deg, rgba(5,6,12,0.25) 0%, rgba(5,6,12,0.85) 70%), var(--tl-pic) center / cover no-repeat, var(--tl-b, #05060c); }
+.tl-card { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 0 16px; max-width: 640px; text-align: center; }
+.tl-card strong { font-size: clamp(34px, 7vw, 64px); text-shadow: 0 4px 24px rgba(0,0,0,0.6); }
+#track-loading-blurb { font-size: 17px; line-height: 1.4; opacity: 0.9; text-shadow: 0 2px 10px rgba(0,0,0,0.7); }
+.tl-bar { width: min(320px, 70vw); height: 4px; margin: 14px 0 6px; border-radius: 2px; background: rgba(255,255,255,0.15); overflow: hidden; }
+.tl-bar i { display: block; width: 35%; height: 100%; background: var(--tl-a, #fff); animation: tl-run 1.1s ease-in-out infinite; }
+@keyframes tl-run { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
+.tl-tip { font-size: 14px; opacity: 0.75; font-style: italic; }
 .result-screen { position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: flex-end; padding: 16px clamp(16px, 6vw, 90px); pointer-events: none; }
 .result-box { width: min(520px, 100%); max-height: 100%; overflow-y: auto; padding: 22px 24px; border-radius: 6px; background: rgba(8, 10, 20, 0.86); color: #fff; pointer-events: auto; }
 .result-kicker { font-size: 13px; color: rgba(255, 255, 255, 0.72); }

@@ -97,8 +97,9 @@ const ROAD_MAP = /* glsl */ `
       // dark glass, lit from below by a line of strips
       float strip = smoothstep(0.06, 0.0, abs(fract(along / 8.0) - 0.5)) * 0.5;
       c = mix(vec3(0.015, 0.03, 0.04), uEdgeLine * 0.5, strip);
-      gRough = 0.05;
-      gMetal = 0.2;
+      // frosted, not a mirror: at 0.05 the low sky glared straight off it, white from edge to edge
+      gRough = 0.45;
+      gMetal = 0.0;
     } else {
       vec3 t0 = diffuseColor.rgb * texture2D(map, vMapUv).rgb;
       vec3 t1 = texture2D(map, vMapUv * 0.37 + 0.13).rgb;
@@ -137,8 +138,9 @@ const ROAD_MAP = /* glsl */ `
       gRough = mix(gRough, 0.6, kerb);
     }
     // standing water
-    float pool = smoothstep(0.5, 0.64, aFbm(vec2(lat * 0.16 + 3.0, along * 0.05))) * uWet;
-    gWetMask = clamp(uWet * 0.55 + pool, 0.0, 1.0);
+    // (soft-edged and not a mirror: hard round pools reflecting a bright sky read as white circles)
+    float pool = smoothstep(0.42, 0.7, aFbm(vec2(lat * 0.16 + 3.0, along * 0.05))) * uWet * 0.45;
+    gWetMask = clamp(uWet * 0.5 + pool, 0.0, 0.8);
     c *= 1.0 - gWetMask * 0.42;
     diffuseColor.rgb = c + uLift * c;
   }
@@ -287,7 +289,7 @@ function buildRoad(def: TrackDef, c: Circuit, root: THREE.Group, shared?: RoadCo
     s.fragmentShader = s.fragmentShader
       .replace('#include <common>', `#include <common>\n${ROAD_GLSL}`)
       .replace('#include <map_fragment>', ROAD_MAP)
-      .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = mix(gRough, 0.07, gWetMask);')
+      .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = mix(gRough, 0.2, gWetMask);')
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
         totalEmissiveRadiance += uSheen * pow(1.0 - abs(dot(normalize(vViewPosition), normal)), 5.0) * (0.05 + gWetMask * 0.42);`)
       .replace('#include <metalnessmap_fragment>', 'float metalnessFactor = gMetal;')

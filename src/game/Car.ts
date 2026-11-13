@@ -869,7 +869,7 @@ export class Car {
             if (m.emissive.r + m.emissive.g + m.emissive.b < 0.1) m.emissive.set(0xfff4e0)
             this.headMats.push(m)
           }
-          if (/brake|tail|rear.?light|stop/i.test(m.name)) {
+          if (/brake|(?<![a-z])tail|rear.?light|stop/i.test(m.name)) {
             if (m.emissive.r + m.emissive.g + m.emissive.b < 0.1) m.emissive.set(0xff1a00)
             this.tailMats.push(m)
           }
@@ -921,9 +921,12 @@ export class Car {
       model.traverse((o) => {
         const m = o as THREE.Mesh
         if (!m.isMesh || Array.isArray(m.material) || !(m.material instanceof THREE.MeshStandardMaterial)) return
-        const c = this.mesh.worldToLocal(new THREE.Box3().setFromObject(m, true).getCenter(new THREE.Vector3()))
+        const bb = new THREE.Box3().setFromObject(m, true)
+        const c = this.mesh.worldToLocal(bb.getCenter(new THREE.Vector3()))
         const list = zones.get(m.material) ?? []
-        list.push(c.z / halfL)
+        // a part that runs a good way along the car (trim, a detail sheet)
+        // isn't a lamp, wherever its middle happens to fall
+        list.push(Math.max(bb.max.z - bb.min.z, bb.max.x - bb.min.x) > halfL * 1.1 ? 0 : c.z / halfL)
         zones.set(m.material, list)
       })
       for (const [mat, zs] of zones) {

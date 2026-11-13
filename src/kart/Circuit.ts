@@ -16,6 +16,8 @@ export class Circuit {
   readonly branches: Circuit[] = []
   /** For a branch: the main-loop samples where it leaves and rejoins, and how keen rivals are on it. */
   join: { from: number; to: number; odds: number; name: string } | null = null
+  /** A branch whose gap is bridged by a moving deck: no boost needed to cross. */
+  bridged = false
   /** For a branch: physically closed off for now (boarded up). Nobody is put on it, or follows it. */
   shut = false
   /** Inside a hill: the ground above stays put. */
@@ -176,7 +178,8 @@ export class Circuit {
 
   /**
    * Where a fork or a join runs alongside, the rail on that side has to open,
-   * but only over the stretch where the two roads actually touch: an open
+   * but only over the stretch where the two roads actually overlap (by a
+   * couple of metres; a sliver of edge-on-edge is a hole to drop through): an open
    * edge before the branch has split off is just a place to fall off.
    */
   private openRails(): void {
@@ -193,7 +196,7 @@ export class Circuit {
           if (b === a || touch) continue
           for (const j of b.near(ex, ez) ?? []) {
             const q = b.samples[j]!
-            if (Math.abs(q.y - p.y) < 2.5 && Math.hypot(q.x - ex, q.z - ez) < b.widths[j]! / 2) { touch = true; break }
+            if (Math.abs(q.y - p.y) < 2.5 && Math.hypot(q.x - ex, q.z - ez) < b.widths[j]! / 2 - 2) { touch = true; break }
           }
         }
         if (touch) (side < 0 ? a.railL : a.railR)[i] = false

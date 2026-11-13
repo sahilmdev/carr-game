@@ -1,9 +1,56 @@
 import * as THREE from 'three'
 /* Dev-only helpers for checking tracks from the console. Never shipped. */
 /* eslint-disable @typescript-eslint/no-explicit-any */
+/** Let the page breathe without a timer (a hidden tab clamps timers to a second). */
+const yieldNow = (): Promise<void> => new Promise((r) => { const ch = new MessageChannel(); ch.port1.onmessage = () => r(); ch.port2.postMessage(0) })
+
 export function install(app: unknown): void {
   const k = app as any
   const w = window as any
+  w.__app = k
+  /** Tight bends where a road folds over itself (its two sides cross): [road, i, j, gap]. */
+  w.__fold = async (id: string) => {
+    await load(id)
+    const c = k.circuit, out: number[][] = []
+    ;[c, ...c.branches].forEach((a: any, ai: number) => {
+      for (let i = 0; i < a.count; i += 2) {
+        const p = a.samples[i]
+        const step = a.length / a.count
+        for (let q = 4; q < 160; q += 2) {
+          const j = a === c ? (i + q) % a.count : i + q
+          if (j >= a.count) break
+          // far enough along the road that the two can't be the same stretch of tarmac
+          const w = (a.widths[i] + a.widths[j]) / 2
+          if (q * step < w * 1.7) continue
+          const s = a.samples[j], chord = Math.hypot(s.x - p.x, s.z - p.z)
+          if (chord < w * 0.95 && Math.abs(s.y - p.y) < 6) { out.push([ai, i, j, +(chord - w).toFixed(1)]); break }
+        }
+      }
+    })
+    const seen = new Set<string>()
+    return out.filter((o) => { const key = o[0] + ':' + Math.round(o[1]! / 30); if (seen.has(key)) return false; seen.add(key); return true })
+  }
+  /** Places where one road hangs over another (a switchback deck above the lower road). */
+  w.__ovl = async (id: string) => {
+    await load(id)
+    const c = k.circuit, roads = [c, ...c.branches], out: number[][] = []
+    roads.forEach((a: any, ai: number) => {
+      for (let i = 0; i < a.count; i += 2) {
+        const p = a.samples[i]
+        roads.forEach((b: any, bi: number) => {
+          for (let j = 0; j < b.count; j += 2) {
+            if (a === b && Math.abs(i - j) < 40) continue
+            const q = b.samples[j], dy = q.y - p.y
+            if (dy < 1.5 || dy > 14) continue
+            const h = Math.hypot(q.x - p.x, q.z - p.z)
+            if (h < (a.widths[i] + b.widths[j]) / 2 + 1) out.push([ai, i, bi, j, +dy.toFixed(1), +h.toFixed(1), Math.round(p.x), Math.round(p.z)])
+          }
+        })
+      }
+    })
+    const seen = new Set<string>()
+    return out.filter((o) => { const key = o[0] + ':' + Math.round(o[1]! / 20); if (seen.has(key)) return false; seen.add(key); return true })
+  }
   const load = async (id: string): Promise<void> => {
     await k.settled()
     if (!k.def || k.def.id !== id) { await k.loadTrack(id, true); await k.settled() }
@@ -366,7 +413,7 @@ export function install(app: unknown): void {
         for (const r of k.racers) if (r.path !== k.circuit) { const key = 'rv:' + r.path.join.name; res.paths[key] = (res.paths[key] ?? 0) + dt }
         if (p.lap > lastLap) { lastLap = p.lap; res.laps.push(Math.round(p.lastLapMs) / 1000) }
         if (k.phase === 'finished' || k.phase === 'idle') { res.finished = p.finished; break }
-        if (performance.now() - chunkAt > 400) { await new Promise((r) => setTimeout(r, 0)); chunkAt = performance.now() }
+        if (performance.now() - chunkAt > 400) { await yieldNow(); chunkAt = performance.now() }
       }
     } catch (e) { res.errors.push(String((e as Error).stack || e).slice(0, 300)) }
     window.removeEventListener('error', onErr)

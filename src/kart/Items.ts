@@ -9,16 +9,17 @@ import type { Hit, World } from './World'
  * get depends on where you are: leaders get defence, the back of the pack
  * gets speed and things that chase.
  */
-export type ItemKind = 'turbo' | 'triple' | 'dart' | 'seeker' | 'mine' | 'shield'
-export const ITEM_KINDS: ItemKind[] = ['turbo', 'triple', 'dart', 'seeker', 'mine', 'shield']
+export type ItemKind = 'turbo' | 'triple' | 'dart' | 'seeker' | 'mine' | 'shield' | 'comet' | 'storm'
+export const ITEM_KINDS: ItemKind[] = ['turbo', 'triple', 'dart', 'seeker', 'mine', 'shield', 'comet', 'storm']
 
 /** Odds by place: front, middle, back. */
 const ODDS: Record<'front' | 'mid' | 'back' | 'last', [ItemKind, number][]> = {
   front: [['mine', 0.35], ['shield', 0.25], ['dart', 0.3], ['turbo', 0.1]],
   mid: [['dart', 0.28], ['seeker', 0.22], ['turbo', 0.22], ['mine', 0.14], ['shield', 0.14]],
-  back: [['triple', 0.35], ['seeker', 0.3], ['turbo', 0.25], ['dart', 0.1]],
-  // dead last: the strongest catch-up items, and a turbo comes as a pair
-  last: [['turbo', 0.45], ['seeker', 0.35], ['triple', 0.2]],
+  back: [['triple', 0.3], ['seeker', 0.25], ['comet', 0.2], ['turbo', 0.15], ['storm', 0.1]],
+  // dead last: the real catch-up items. Comet: a long untouchable rocket run.
+  // Storm: lightning on everyone ahead of you. A turbo comes as a pair.
+  last: [['comet', 0.35], ['storm', 0.25], ['triple', 0.25], ['seeker', 0.15]],
 }
 
 const ROLL = 1.1
@@ -284,6 +285,12 @@ export class Items {
         break
       }
       case 'shield': go = true; break
+      case 'storm': go = true; break
+      case 'comet': {
+        const [c, i] = r.ahead(25)
+        go = !c.gap[i] || h.waited > 4
+        break
+      }
       case 'seeker': go = place > 0 || h.waited > 6; break
       case 'dart':
         if (near(1, 80, 0.96)) go = true
@@ -305,6 +312,20 @@ export class Items {
         break
       case 'shield':
         r.shield = 10
+        break
+      case 'comet':
+        // a long rocket run: way over top speed for four seconds, and nothing can touch you
+        car.kick(4.2)
+        car.setSpeed(Math.max(car.getSpeed(), car.topSpeed * 1.3))
+        r.shield = Math.max(r.shield, 4.4)
+        r.cometT = 4.2
+        break
+      case 'storm':
+        // lightning: everyone ahead of you spins out where they are (shields still save them)
+        for (const o of order.slice(0, order.indexOf(r))) {
+          if (o.cometT > 0) continue
+          if (o.struck()) this.flash(o.car.position, 0xfff2a0, 10, 0.5)
+        }
         break
       case 'dart': {
         const dir = back ? -1 : 1

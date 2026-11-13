@@ -76,15 +76,16 @@ const POINTS: TrackPoint[] = [
   [178, 14, 500, { items: true }],
   [205, 18, 410],
   [222, 22, 340],
-  [232, 24, 300],
+  [226, 24, 304],
   // 9: first hairpin, then the second leg back south
-  [252, 26, 266, { bank: 4, w: 20 }],
-  [272, 29, 300],
+  // (the hairpins are opened out: tighter than the road is wide, it folded over itself)
+  [254, 26, 256, { bank: 4, w: 20 }],
+  [282, 29, 304],
   [282, 32, 370],
-  [286, 35, 430],
+  [278, 35, 424],
   // 13: second hairpin, then the long third leg north
-  [304, 37, 468, { bank: 4, w: 20 }],
-  [322, 40, 430],
+  [306, 37, 480, { bank: 4, w: 20 }],
+  [334, 40, 424],
   [330, 44, 360, { pad: 0 }],
   [326, 48, 280],
   [300, 52, 200],
@@ -137,6 +138,8 @@ const POINTS: TrackPoint[] = [
 export const dam: TrackDef = {
   id: 'dam',
   name: 'The Great Dam',
+  news: ['THE GATES ARE OPEN - FLOOD CHANNEL OPEN', 'FULL FLOOD - THE LOW ROAD IS UNDER'],
+  weather: ['rain', 'fog'],
   ambience: 'canyon',
   width: 18,
   bank: 2.6,
@@ -385,7 +388,14 @@ function buildTown(k: BuildKit): void {
       fronts.push({ x, z, r: rad })
       const yaw = Math.atan2(-side * r.x, -side * r.z)
       const list = fm.get(kd.name) ?? []
-      list.push(trs(x, w.terrainAt(x, z) + 2.4, z, yaw, s))
+      // stand on the lowest ground under the footprint, so no corner hangs in
+      // the air where the bank falls away to the river
+      let low = w.terrainAt(x, z)
+      const ca = Math.cos(yaw), sa = Math.sin(yaw), hw = kd.w * s / 2, hd = kd.d * s / 2
+      for (const [u, v] of [[-1, -1], [1, -1], [-1, 1], [1, 1], [0, -1], [0, 1], [-1, 0], [1, 0]] as const) {
+        low = Math.min(low, w.terrainAt(x + u * hw * ca + v * hd * sa, z - u * hw * sa + v * hd * ca))
+      }
+      list.push(trs(x, low + 2.4, z, yaw, s))
       fm.set(kd.name, list)
       w.addBox(x, z, kd.w * s / 2, kd.d * s / 2, yaw)
     }

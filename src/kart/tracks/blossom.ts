@@ -94,6 +94,8 @@ export const blossom: TrackDef = {
   // the drift mountain: drifts linked hairpin to hairpin build a bigger and bigger boost
   driftChain: 0.4,
   name: 'Blossom Pass',
+  news: ['THE WIND PICKS UP', 'DUSK - MIST IN THE VALLEY'],
+  weather: ['rain'],
   ambience: 'snow',
   width: 17,
   bank: 2.2,

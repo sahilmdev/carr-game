@@ -46,7 +46,7 @@ function shore(x: number, z: number): number {
 
 const pt = (x: number, y: number, z: number, o?: TrackPoint[3]): TrackPoint => [x * S, y, z * S, o]
 
-const BRIDGE = { raised: true, rail: 'LR', deck: 'steel' } as const
+const BRIDGE = { raised: true, rail: 'LR', deck: 'asphalt' } as const
 const POINTS: TrackPoint[] = [
   // 0: the harbour quay, heading north
   pt(0, 4, 0, { w: 18 }),
@@ -83,6 +83,7 @@ const POINTS: TrackPoint[] = [
 export const storm: TrackDef = {
   id: 'storm',
   name: 'Storm Coast',
+  news: ['THE STORM IS COMING', 'FULL STORM'],
   ambience: 'coast',
   width: 17,
   bank: 2.4,
@@ -90,16 +91,20 @@ export const storm: TrackDef = {
   accent: 0x7ab4d8,
   sea: SEA,
   water: { deep: 0x0c1a24, shallow: 0x3a5a64, foam: 0xe8f0f2, waves: 1.3 },
-  far: 0x1a2228,
+  far: 0x3a4650,
   farY: -14,
   rails: 'steel',
-  road: { lines: 'circuit', kerbColors: [0xe8e8e4, 0x2a5a8a], grime: 0x3a3e40, edgeLine: 0xf0f0ec, tone: 0.95, sheen: 0.35, lift: 0.2 },
-  terrain: { layers: ['grass', 'rock_pitted_mossy', 'coast_sand_01', 'brown_mud_leaves_01'], tile: [22, 16, 14, 12], tints: [0x7a8a6a, 0x8a8e90, 0xb0aca0, 0x6a6a5a] },
+  road: { lines: 'circuit', kerbColors: [0xf4f4f0, 0xc8302a], grime: 0x3a3e40, edgeLine: 0xf0f0ec, tone: 1.32, sheen: 0.5, lift: 0.55 },
+  terrain: { layers: ['grass', 'rock_pitted_mossy', 'coast_sand_01', 'brown_mud_leaves_01'], tile: [22, 16, 14, 12], tints: [0x9ab07a, 0x9a9ea0, 0xc8c0ae, 0x7a7a62] },
   look: {
-    tod: 'sunset', generatedSky: true, top: [0.16, 0.19, 0.24], horizon: [0.5, 0.52, 0.56], mix: 0.9, stars: 0,
-    fog: [0.34, 0.38, 0.43], fogDensity: 0.0013, fogBase: 30, fogFall: 0.012, sunGlow: 0.2,
-    exposure: 1.3, sun: 0.75, hemi: 1.75, bloom: 0.38, shafts: 0.1, wet: 0.35, headlights: 0.6, env: 0.9,
-    grade: [0.92, 1.1, 0.012, 0.014, 0.02, 0.98, 1.0, 1.04, 0.34],
+    // a storm sky with a break in it: slate cloud overhead, a burning band of
+    // low sun under it on the horizon, hard warm light raking across the
+    // headland and long shadows (it was flat grey, lit evenly from everywhere)
+    // (lap 1 is lighter now, a bright break in the cloud; the rain laps close it in)
+    tod: 'sunset', generatedSky: true, top: [0.3, 0.4, 0.52], horizon: [0.96, 0.72, 0.5], mix: 0.85, stars: 0,
+    fog: [0.62, 0.66, 0.72], fogDensity: 0.0007, fogBase: 30, fogFall: 0.012, sunGlow: 0.75,
+    exposure: 1.2, sun: 1.4, hemi: 1.25, bloom: 0.42, shafts: 0.5, wet: 0.35, headlights: 0.6, env: 1,
+    grade: [1.06, 1.16, 0.016, 0.01, 0.0, 1.04, 0.98, 0.95, 0.4],
   },
   points: POINTS,
   branches: [
@@ -151,6 +156,7 @@ export const storm: TrackDef = {
     tunnelBore(k, c.branches[0]!)
     const waves = breakwater(k)
     const sky = lightning(k)
+    const farm = windFarm(k)
 
     // the weather, building lap by lap
     const rain = drift(k, 1400, 0xcdd8e2, 1.6, 48, true)
@@ -173,6 +179,7 @@ export const storm: TrackDef = {
       bridge(f.time, last ? 11 : f.lap >= 2 ? 15 : 20, f.dt)
       waves(u, f.time, f.dt)
       sky(f.lap, last, f.dt)
+      farm(f.time, u, f.dt)
     })
   },
 }
@@ -266,6 +273,57 @@ function surfRocks(k: BuildKit): void {
   d.prop('bk:coast_rocks_01', stacks, 0, new THREE.Color(0.55, 0.58, 0.6))
 }
 
+/**
+ * Out in the bay, a line of wind turbines: tall white towers you can see
+ * from most of the lap, blades turning faster as the storm builds, red
+ * lamps blinking on top.
+ */
+function windFarm(k: BuildKit): (t: number, u: number, dt: number) => void {
+  const { world: w, d, root } = k
+  const towers = new Mesher()
+  const rotors: THREE.Object3D[] = []
+  const bladeGeo = new Mesher()
+  for (let b = 0; b < 3; b++) {
+    const g = new THREE.BoxGeometry(1.4, 30, 0.5)
+    g.translate(0, 15.5, 0)
+    g.rotateZ((b * Math.PI * 2) / 3)
+    bladeGeo.add(g, new THREE.Matrix4(), 0xf0f0ec)
+  }
+  bladeGeo.add(new THREE.SphereGeometry(1.6, 10, 8), new THREE.Matrix4(), 0xe8e8e4)
+  const blades = bladeGeo.build()
+  const bladeMat = surface('paint')
+  const lampMat = glow(5, 0.4, 0.3)
+  const lamps: THREE.Mesh[] = []
+  for (let q = 0; q < 9; q++) {
+    // a gently curving line well out to sea, east of the island and the headland
+    const zu = -620 + q * 95, xu = 640 + Math.sin(q * 0.7) * 40
+    const x = xu * S, z = zu * S
+    if (w.terrainAt(x, z) > -4 || d.roadGap(x, z) < 120) continue
+    const H = 66
+    towers.add(new THREE.CylinderGeometry(1.3, 2.3, H, 12), trs(x, SEA + H / 2, z), 0xeceae4)
+    towers.add(new THREE.CylinderGeometry(4.5, 4.5, 3, 14), trs(x, SEA + 1.5, z), 0xe8c020)
+    // the nacelle, facing the shore (west)
+    towers.box(7, 3, 3, x - 1.5, SEA + H + 1.2, z, 0xeceae4)
+    const rotor = new THREE.Mesh(blades, bladeMat)
+    rotor.position.set(x - 5.4, SEA + H + 1.2, z)
+    rotor.rotation.y = Math.PI / 2
+    rotor.rotation.z = q * 1.3
+    root.add(rotor)
+    rotors.push(rotor)
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.7, 8, 6), lampMat)
+    lamp.position.set(x - 1.5, SEA + H + 3.3, z)
+    root.add(lamp)
+    lamps.push(lamp)
+  }
+  place(k, towers, surface('paint'))
+  return (t, u, dt) => {
+    const spin = 0.6 + u * 1.4
+    for (const r of rotors) r.rotation.z -= spin * dt
+    const on = Math.sin(t * 3) > 0.2
+    for (const l of lamps) l.visible = on
+  }
+}
+
 /** The lighthouse on the headland: its lamp lit, the beam sweeping the sea. */
 function lighthouse(k: BuildKit): (t: number) => void {
   const { world: w, root } = k
@@ -282,7 +340,7 @@ function lighthouse(k: BuildKit): (t: number) => void {
   const lamp = new THREE.Mesh(new THREE.SphereGeometry(2.6, 12, 8), glow(6, 5.4, 3.6))
   lamp.position.set(LX, LY + 37.5, LZ)
   root.add(lamp)
-  const beam = new THREE.Mesh(new THREE.ConeGeometry(16, 320, 22, 1, true), new THREE.MeshBasicMaterial({ color: new THREE.Color(1, 0.98, 0.85), transparent: true, opacity: 0.09, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, toneMapped: false }))
+  const beam = new THREE.Mesh(new THREE.ConeGeometry(16, 320, 22, 1, true), new THREE.MeshBasicMaterial({ color: new THREE.Color(1, 0.98, 0.85), transparent: true, opacity: 0.16, fog: false, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, toneMapped: false }))
   beam.geometry.translate(0, -160, 0)
   beam.geometry.rotateZ(Math.PI / 2)
   const pivot = new THREE.Group()
@@ -367,12 +425,34 @@ function tunnelBore(k: BuildKit, tunnel: Circuit): void {
     if (i % 12 === 0) for (const s of [-1, 1]) lamps.push(trs(p.x + r.x * s * (R - 1.6), p.y + 4.2, p.z + r.z * s * (R - 1.6), 0, 0.3))
   }
   place(k, shell, surface('rock'))
+  // the hillside dipped into the bore near the mouths (ground through the
+  // roof, across the road): lift any ground inside the tube up over its roof
+  root.traverse((o) => {
+    const m = o as THREE.Mesh
+    if (!m.isMesh || !m.geometry.getAttribute('splat')) return
+    const pos = m.geometry.getAttribute('position') as THREE.BufferAttribute
+    const e = m.matrixWorld.elements
+    let moved = 0
+    for (let v = 0; v < pos.count; v++) {
+      const x = pos.getX(v) + e[12]!, y = pos.getY(v) + e[13]!, z = pos.getZ(v) + e[14]!
+      for (const j of tunnel.near(x, z) ?? []) {
+        if (!tunnel.tunnel[j]) continue
+        const p = tunnel.samples[j]!, R = tunnel.widths[j]! / 2 + 3.2
+        if (Math.hypot(p.x - x, p.z - z) > R) continue
+        const roof = p.y + R * 0.8 + 1.2
+        if (y > p.y - 2 && y < roof) { pos.setY(v, roof - e[13]!); moved++ }
+        break
+      }
+    }
+    if (moved) { pos.needsUpdate = true; m.geometry.computeVertexNormals(); m.geometry.computeBoundingSphere() }
+  })
   d.instanced(new THREE.SphereGeometry(1, 8, 6), glow(3, 2.6, 1.6), lamps, false)
   const pool = softDot()
   for (let q = 0; q < lamps.length; q += 2) {
-    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: pool, color: 0xffd8a0, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false }))
+    // (small: a 12 m glow card met the tunnel wall and the camera as a flat beige slab)
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: pool, color: 0xffd8a0, transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending, depthWrite: false }))
     sp.position.setFromMatrixPosition(lamps[q]!)
-    sp.scale.setScalar(12)
+    sp.scale.setScalar(4.5)
     root.add(sp)
   }
 }
@@ -432,7 +512,7 @@ function lightning(k: BuildKit): (lap: number, last: boolean, dt: number) => voi
   const glowSky = new THREE.Sprite(new THREE.SpriteMaterial({ map: softDot(), color: 0xc8d8ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }))
   glowSky.scale.setScalar(900)
   root.add(glowSky)
-  let wait = 4, life = 0
+  let wait = 4, life = 0, rumble = -1, rumbleVol = 0
   const strike = (): void => {
     while (bolt.children.length) bolt.remove(bolt.children[0]!)
     // out at sea, east of the coast
@@ -451,8 +531,12 @@ function lightning(k: BuildKit): (lap: number, last: boolean, dt: number) => voi
     glowSky.position.set(x, 260, z)
     life = 0.35
     k.flash(0.8, 0.86, 1, 0.75)
+    // the thunder follows the flash, later and softer the further off it struck
+    rumble = 0.35 + d.rand() * 1.4
+    rumbleVol = 1 - rumble * 0.3
   }
   return (lap, last, dt) => {
+    if (rumble > 0) { rumble -= dt; if (rumble <= 0) k.sfx('thunder', rumbleVol) }
     if (life > 0) {
       life -= dt
       // the bolt flickers as it fades

@@ -89,6 +89,7 @@ const HOUSE = { x: 345 * S, z: -135 * S }
 export const carnival: TrackDef = {
   id: 'carnival',
   name: 'Midnight Carnival',
+  news: ['FIREWORKS - DODGEMS LOOSE', 'A COASTER CAR JOINS THE RACE'],
   ambience: 'town',
   width: 17,
   bank: 3,

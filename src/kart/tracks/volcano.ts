@@ -26,7 +26,7 @@ const K = 1.22
 const V = { x: 0, z: -300 * K }
 const BASE = 600 * K, PEAK = 150, CREST = 175 * K, LAKE = 58
 /** The young cone in the crater: how far it rises over the lava, and its foot's radius. */
-const SPIRE = { h: 150, r: 100 * K }
+const SPIRE = { h: 235, r: 100 * K }
 /** The two lava rivers down the west flank: direction from the crater (radians), and how far down they run. */
 const RIVERS = [
   { a: 0, r0: 300 * K, r1: 480 * K },
@@ -63,6 +63,12 @@ function profile(x: number, z: number): number {
   let h = cone(x, z)
   // the shore: land falls away into the sea to the south
   h = THREE.MathUtils.lerp(h + 2.5, -10, smooth(300 * K, 380 * K, z))
+  // ridges and gullies running straight down the flanks, as old flows leave
+  // them: strongest on the mid slopes, gone on the beach and in the crater
+  const dx = x - V.x, dz = z - V.z, r = Math.hypot(dx, dz), a = Math.atan2(dz, dx)
+  const band = smooth(CREST + 20, CREST + 90, r) * (1 - smooth(BASE * 0.75, BASE, r))
+  const rib = Math.abs(Math.sin(a * 19 + fbm2(r * 0.01, a * 2) * 3))
+  h += (rib * 2 - 1.1) * 8 * band
   for (const rv of RIVERS) {
     const { d, r } = riverAt(rv, x, z)
     if (r < rv.r0 - 30 || r > rv.r1 + 30) continue
@@ -125,6 +131,7 @@ const POINTS: TrackPoint[] = [
 export const volcano: TrackDef = {
   id: 'volcano',
   name: 'Volcano Run',
+  news: ['THE COOLED FLOW IS OPEN', 'THE MOUNTAIN WAKES'],
   ambience: 'volcano',
   width: 17,
   bank: 2.4,
@@ -170,7 +177,7 @@ export const volcano: TrackDef = {
     return g + fbm2(x * 0.012, z * 0.012) * 6 * smooth(4, 20, g) * keep
   },
   splat(x, z, h, slope, roadDist, mix, tint) {
-    const rock = smooth(0.5, 0.95, slope)
+    const rock = smooth(0.32, 0.7, slope) + smooth(0.55, 0.7, fbm2(x * 0.05, z * 0.05)) * 0.4
     const sand = 1 - smooth(4, 9, h)
     const ash = smooth(60, 100, h)
     const crust = smooth(0.45, 0.6, fbm2(x * 0.015 + 4, z * 0.015)) * (1 - sand)
@@ -178,7 +185,9 @@ export const volcano: TrackDef = {
     mix[1] = sand
     mix[2] = ash * (1 - rock)
     mix[3] = crust * (1 - rock) + smooth(8, 3, roadDist) * 0.3
-    tint.setRGB(1, 1, 1)
+    // scorched darker near the top, a little warmer low down
+    const up = smooth(20, 110, h)
+    tint.setRGB(1 - up * 0.25, 1 - up * 0.3, 1 - up * 0.32)
   },
   surfaceAt: (_x, z) => (z > 230 * K ? 'sand' : 'concrete'),
   async build(k) {
@@ -198,6 +207,7 @@ export const volcano: TrackDef = {
     ventJump(k)
     beach(k)
     rimHut(k)
+    roadCracks(k, hot)
 
     // the mountain: dark rock and dead trees up high, green only by the sea
     const lowland = (_x: number, z: number, y: number) => y > 2 && y < 16 && z > 120 * K
@@ -214,7 +224,17 @@ export const volcano: TrackDef = {
 
     // steam rising off the flank, and a plume from the crater
     mist(k, d.spots(18, 20, 120, { clear: 18, test: flank }).map((s) => s.setY(s.y + 6)), [30, 60], 0xc8b8b0, 0.14)
-    mist(k, Array.from({ length: 14 }, (_, q) => new THREE.Vector3(V.x + Math.sin(q * 2.1) * (12 + q * 6), LAKE + SPIRE.h - 20 + q * 22, V.z + Math.cos(q * 2.1) * (12 + q * 6) + q * 10)), [70, 160], 0x5a504e, 0.3)
+    // the plume is the landmark: you drive on the mountain, so you see the
+    // volcano by its smoke. Taller, darker, lit orange from below, and never
+    // lost in the haze (no fog on it), so it stands over every part of the lap.
+    const before = k.root.children.length
+    mist(k, Array.from({ length: 40 }, (_, q) => new THREE.Vector3(V.x + Math.sin(q * 1.3) * (8 + q * 4), LAKE + SPIRE.h - 30 + q * 15, V.z + Math.cos(q * 1.3) * (8 + q * 4) + q * 9)), [120, 200], 0x4a4040, 0.3)
+    k.root.children.slice(before).forEach((o, q) => {
+      const m = (o as THREE.Sprite).material as THREE.SpriteMaterial
+      m.fog = false
+      // the lowest puffs glow with the lava under them
+      if (q < 10) m.color.lerp(new THREE.Color(0xff6a2a), 0.55 - q * 0.05)
+    })
 
     // the last lap: ash, a red sky, and the crater throwing rock
     const ash = drift(k, 700, 0x5a5452, 0.45, 2.6)
@@ -228,7 +248,7 @@ export const volcano: TrackDef = {
       const pulse = 1 + Math.sin(f.time * 1.7) * 0.08 + (last ? 0.25 : 0)
       hot.color.setRGB(2.4 * pulse, 0.95 * pulse, 0.32 * pulse)
       ash.visible = last
-      bombs(last, f.dt, f.time)
+      bombs(last, f.dt, f.camera.position)
       tube(f.time)
       flow(f.lap >= 2, f.dt)
       const sceneFog = (root.parent as THREE.Scene | null)?.fog as THREE.FogExp2 | undefined
@@ -268,7 +288,7 @@ function lavaMaterial(): { mat: THREE.MeshBasicMaterial; tex: THREE.CanvasTextur
     }
   })
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping
-  const mat = new THREE.MeshBasicMaterial({ map: tex, color: new THREE.Color(2.4, 0.95, 0.32), toneMapped: false })
+  const mat = new THREE.MeshBasicMaterial({ map: tex, color: new THREE.Color(3.4, 1.3, 0.4), toneMapped: false, fog: false })
   return { mat, tex }
 }
 
@@ -280,9 +300,9 @@ function lavaLake(k: BuildKit, mat: THREE.Material): void {
   const uv = lake.geometry.getAttribute('uv') as THREE.BufferAttribute
   for (let q = 0; q < uv.count; q++) uv.setXY(q, uv.getX(q) * 4, uv.getY(q) * 4)
   k.root.add(lake)
-  const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: softDot(), color: 0xff5a1a, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false }))
-  halo.position.set(V.x, LAKE + 30, V.z)
-  halo.scale.setScalar(420)
+  const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: softDot(), color: 0xff5a1a, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }))
+  halo.position.set(V.x, LAKE + 60, V.z)
+  halo.scale.setScalar(620)
   k.root.add(halo)
   // lava running down the young cone in bright streaks, and a glow at its vent
   const pos: number[] = [], suv: number[] = [], idx: number[] = []
@@ -308,9 +328,9 @@ function lavaLake(k: BuildKit, mat: THREE.Material): void {
   const streaks = new THREE.Mesh(g, mat)
   streaks.userData['keep'] = true
   k.root.add(streaks)
-  const top = new THREE.Sprite(new THREE.SpriteMaterial({ map: softDot(), color: 0xff7a2a, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false }))
+  const top = new THREE.Sprite(new THREE.SpriteMaterial({ map: softDot(), color: 0xff7a2a, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }))
   top.position.set(V.x, LAKE - 10 + SPIRE.h - 10, V.z)
-  top.scale.setScalar(90)
+  top.scale.setScalar(160)
   k.root.add(top)
 }
 
@@ -405,7 +425,11 @@ function cooledFlow(k: BuildKit, cut: Circuit, lava: { mat: THREE.MeshBasicMater
   skin.userData['keep'] = true
   root.add(skin)
   // hot rocks across the mouth
-  const i0 = 8, p = cut.samples[i0]!, r = cut.rights[i0]!
+  // (past where the cut still overlaps the main road: rocks there sat across everyone's road)
+  let i0 = 8
+  while (i0 < cut.count - 10 && [0, 3, 6].some((q) => onMain(i0 + q))) i0++
+  i0 += 3
+  const p = cut.samples[i0]!, r = cut.rights[i0]!
   const rocks = new Mesher(), solids: Solid[] = []
   for (let q = -3; q <= 3; q++) {
     const lat = q * 2.6, x = p.x + r.x * lat, z = p.z + r.z * lat, s = 1.8 + Math.abs(Math.sin(q * 3.1)) * 1.2
@@ -505,7 +529,7 @@ function rimHut(k: BuildKit): void {
  * Burning rock thrown from the crater on the last lap: it arcs high, falls
  * beside the road (never on it) and bursts in a glow.
  */
-function lavaBombs(k: BuildKit): (on: boolean, dt: number, t: number) => void {
+function lavaBombs(k: BuildKit): (on: boolean, dt: number, cam: THREE.Vector3) => void {
   const { d, root } = k
   const targets = d.spots(30, 14, 40, { clear: 12 })
   const N = 8
@@ -520,7 +544,7 @@ function lavaBombs(k: BuildKit): (on: boolean, dt: number, t: number) => void {
     return { m, burst, t: -1 - Math.random() * 6, from: new THREE.Vector3(), to: new THREE.Vector3(), boom: 0 }
   })
   const DUR = 3.2
-  return (on, dt) => {
+  return (on, dt, cam) => {
     for (const b of bombs) {
       if (b.boom > 0) {
         b.boom = Math.max(0, b.boom - dt * 1.4)
@@ -536,6 +560,8 @@ function lavaBombs(k: BuildKit): (on: boolean, dt: number, t: number) => void {
         b.to.copy(s)
         b.m.visible = true
         b.t = 0.0001
+        // a dull thump from the crater as each one is thrown
+        k.sfx('whumpf', 0.25)
       }
       const u = Math.min(1, b.t / DUR)
       b.m.position.lerpVectors(b.from, b.to, u)
@@ -545,8 +571,32 @@ function lavaBombs(k: BuildKit): (on: boolean, dt: number, t: number) => void {
         b.m.visible = false
         b.boom = 1
         b.burst.position.copy(b.to).setY(b.to.y + 2)
+        const near = 1 - Math.min(1, cam.distanceTo(b.to) / 220)
+        if (near > 0.05) k.sfx('rockImpact', 0.3 + near * 0.7)
         b.t = -2 - d.rand() * 5
       }
     }
   }
+}
+
+/**
+ * Hot cracks in the ground beside the road on the mountain: thin glowing
+ * slits in the rock, so the lava is never far away. Never on the road, and
+ * not down by the sea.
+ */
+function roadCracks(k: BuildKit, hot: THREE.Material): void {
+  const { circuit: c, world: w, d } = k
+  const slits: THREE.Matrix4[] = []
+  for (const cc of c.all) for (let i = 0; i < cc.count; i += 3) {
+    const p = cc.samples[i]!
+    if (p.y < 10 || cc.raised[i] || d.rand() < 0.3) continue
+    const r = cc.rights[i]!, side = d.rand() < 0.5 ? -1 : 1
+    const off = side * (cc.widths[i]! / 2 + 3 + d.rand() * 12)
+    const x = p.x + r.x * off, z = p.z + r.z * off
+    if (d.roadGap(x, z) < 2) continue
+    slits.push(trs(x, w.terrainAt(x, z) + 0.06, z, d.rand() * 6, new THREE.Vector3(0.6 + d.rand() * 0.7, 1, 5 + d.rand() * 9)))
+  }
+  if (!slits.length) return
+  const m = d.instanced(new THREE.BoxGeometry(1, 0.12, 1), hot, slits, false)
+  m.userData['keep'] = true
 }

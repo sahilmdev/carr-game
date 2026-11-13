@@ -47,6 +47,7 @@ function sailTexture(): THREE.CanvasTexture {
 export const galleon: TrackDef = {
   id: 'galleon',
   name: 'Ghost Galleon Bay',
+  news: ['THE TIDE IS IN', 'THE PHANTOM GALLEON'],
   ambience: 'coast',
   width: 15,
   bank: 2.2,

@@ -114,6 +114,10 @@ export interface TrackDef {
   name: string
   /** Ambient sound area (from Sfx). */
   ambience: string
+  /** Weather that may roll in for a race (one is picked now and then): rain, fog or snow. */
+  weather?: ('rain' | 'fog' | 'snow')[]
+  /** Banners for what changes: on lap 2, and on the last lap. */
+  news?: [string, string]
   points: TrackPoint[]
   /** Forks and shortcuts off the main loop. */
   branches?: BranchDef[]
@@ -172,6 +176,10 @@ export interface BuildKit {
   onFrame(fn: (f: FrameInfo) => void): void
   /** Light the whole screen for a moment (lightning): colour 0–1, strength 0–1. */
   flash(r: number, g: number, b: number, strength: number): void
+  /** A one-off sound (thunder, a boom), 0–1 loud. */
+  sfx(name: 'thunder' | 'boom' | 'eruption' | 'rockImpact' | 'rockfall' | 'whumpf' | 'gust', volume: number): void
+  /** A banner across the screen: what changes on the track this lap. */
+  announce(text: string): void
 }
 
 export interface FrameInfo {

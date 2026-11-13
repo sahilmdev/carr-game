@@ -144,7 +144,7 @@ export class Rival {
         const odds = b.join!.odds <= 0 || this.burnt === b ? 0 : Math.min(0.95, Math.max(0.05, b.join!.odds + (this.d.bold - 0.5) * 0.3))
         if (this.burnt === b) this.burnt = null
         // a branch with a jump only a boost clears: only with nitro in hand
-        const needsBoost = b.gap.some((g) => g) && !r.world.vines.some((v) => b.near(v.x, v.z)) && !r.world.zones.some((z) => !!z.lift && !!b.near(z.x, z.z))
+        const needsBoost = !b.bridged && b.gap.some((g) => g) && !r.world.vines.some((v) => b.near(v.x, v.z)) && !r.world.zones.some((z) => !!z.lift && !!b.near(z.x, z.z))
         this.route = this.rand() < odds && (!needsBoost || car.nitro > 0.4) ? b : null
       }
       // well past this fork (or not yet near it): decide afresh next time round
@@ -254,12 +254,18 @@ export class Rival {
     const target = jump && !sharp ? 1e9 : Math.min(car.topSpeed * 1.1, (jump ? bendLimit : c.safe[ai]!) * (0.9 + 0.12 * this.d.bold) * pace)
     const over = speed - target
     this.hold = Math.max(0, this.hold - dt)
+    // rivals rarely drift long enough to earn much: a slow trickle so they boost
+    // a few times a lap, like the player does
+    car.nitro = Math.min(1, car.nitro + dt / 26)
+    // a long clear straight ahead (no tight bend for a good way): burn it
+    let clear = !bend && Math.abs(turn) < 0.15
+    for (let k = 20; k <= 60 && clear; k += 20) { const [sc, si] = r.ahead(k, this.route); clear = sc.safe[si]! > 70 }
     this.input = {
       accelerate: over < 0 && this.hold <= 0,
       brake: over > 6 || (this.hold > 0 && speed > 6),
       left: turn > 0.035,
       right: turn < -0.035,
-      nitro: (car.nitro > 0.35 && over < -6 && Math.abs(turn) < 0.12) || (jump && car.nitro > 0.1),
+      nitro: (car.nitro > 0.3 && over < -2 && clear) || (jump && car.nitro > 0.1),
     }
   }
 }

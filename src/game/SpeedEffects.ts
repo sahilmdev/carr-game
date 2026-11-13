@@ -9,6 +9,8 @@ import type { Car } from './Car'
  *
  * (Radial motion blur at speed lives in PostProcessing's grade pass.)
  */
+const WHITE_WATER = new THREE.Color(0xeaf4f8)
+
 export class SpeedEffects {
   private readonly particles: ParticleSystem
   private readonly skids: SkidMarks
@@ -27,6 +29,12 @@ export class SpeedEffects {
   private readonly spray = new THREE.Color()
   /** Lit smoke color: set from the sky so smoke matches the time of day. */
   public readonly smokeColor = new THREE.Color(0xd6d6d2)
+  /** What the wheels are on, set by the game each frame: it decides what they throw up. */
+  surface: 'road' | 'dirt' | 'snow' | 'steel' | 'water' = 'road'
+  /** Colour of the dust on a dirt or snow surface. */
+  public readonly dustTint = new THREE.Color(0x9a7a58)
+  private trailAcc = 0
+  private sparkAcc = 0
 
   constructor(scene: THREE.Scene) {
     this.particles = new ParticleSystem(460)
@@ -57,7 +65,31 @@ export class SpeedEffects {
       this.skids.track(side > 0 ? 1 : 0, this._wheel, this._right, (grip > 0.25 || this.chirp > 0) && speed > 5)
     }
 
-    // Tyre smoke
+    const loose = this.surface === 'dirt' || this.surface === 'snow'
+    // on dirt or snow the wheels throw a trail of it behind them at any speed
+    if (loose) {
+      this.trailAcc += speed * dt * (this.surface === 'snow' ? 0.5 : 0.4)
+      while (this.trailAcc > 1) {
+        this.trailAcc -= 1
+        const side = Math.random() < 0.5 ? -1 : 1
+        this._wheel.copy(car.position).addScaledVector(this._fwd, -1.9).addScaledVector(this._right, side * 0.9)
+        this._wheel.y = roadY + 0.2
+        this._vel.copy(this._fwd).multiplyScalar(speed * 0.3).add(new THREE.Vector3((Math.random() - 0.5) * 1.6, 0.6 + Math.random(), (Math.random() - 0.5) * 1.6))
+        this.particles.emit(this._wheel, this._vel, 1.4 + Math.random(), 0.32, 1.6 + Math.random(), this.dustTint)
+      }
+    }
+    // sliding on a steel deck: sparks off the wheels
+    if (this.surface === 'steel' && grip > 0.3 && speed > 14) {
+      this.sparkAcc += dt * 10 * grip
+      while (this.sparkAcc > 1) {
+        this.sparkAcc -= 1
+        const side = Math.random() < 0.5 ? -1 : 1
+        this._wheel.copy(car.position).addScaledVector(this._fwd, -1.5).addScaledVector(this._right, side * 0.9).setY(roadY + 0.2)
+        this.sparks(this._wheel.clone(), this._fwd.clone().multiplyScalar(-6).add(this._right.clone().multiplyScalar(side * 3)), 4)
+      }
+    }
+
+    // Tyre smoke (dust, on a loose surface)
     this.smokeAcc += grip * speed * dt * 0.9
     while (this.smokeAcc > 1) {
       this.smokeAcc -= 1
@@ -66,12 +98,14 @@ export class SpeedEffects {
       this._wheel.y = roadY + 0.25
       this._vel.copy(this._fwd).multiplyScalar(speed * 0.25).add(new THREE.Vector3(
         (Math.random() - 0.5) * 1.5, 0.6 + Math.random() * 0.8, (Math.random() - 0.5) * 1.5))
-      this.particles.emit(this._wheel, this._vel, 1.0 + Math.random() * 0.8, 0.42 * Math.min(1, grip + 0.3), 1.4 + Math.random(), this.smokeColor)
+      this.particles.emit(this._wheel, this._vel, 1.0 + Math.random() * 0.8, 0.42 * Math.min(1, grip + 0.3), 1.4 + Math.random(), loose ? this.dustTint : this.smokeColor)
     }
 
     // Spray: wet road, rooster-tail mist behind each rear tyre at speed
-    this.sprayAcc += this.wetness * Math.max(0, speed - 6) * dt * 1.5
-    if (this.sprayAcc > 0) this.spray.copy(this.smokeColor).multiplyScalar(1.05)
+    // through water: a big white splash; on a wet road, a fine mist
+    const wet = this.surface === 'water' ? 3.5 : this.wetness
+    this.sprayAcc += wet * Math.max(0, speed - 6) * dt * 1.5
+    if (this.sprayAcc > 0) this.spray.copy(this.surface === 'water' ? WHITE_WATER : this.smokeColor).multiplyScalar(1.05)
     while (this.sprayAcc > 1) {
       this.sprayAcc -= 1
       const side = Math.random() < 0.5 ? -1 : 1
@@ -79,7 +113,7 @@ export class SpeedEffects {
       this._wheel.y = roadY + 0.3
       this._vel.copy(this._fwd).multiplyScalar(speed * 0.55).add(new THREE.Vector3(
         (Math.random() - 0.5) * 2.5 + this._right.x * side * 1.5, 1.2 + Math.random() * 1.6, (Math.random() - 0.5) * 2.5 + this._right.z * side * 1.5))
-      this.particles.emit(this._wheel, this._vel, 0.7 + Math.random() * 0.6, 0.2, 0.6 + Math.random() * 0.4, this.spray)
+      this.particles.emit(this._wheel, this._vel, (0.7 + Math.random() * 0.6) * (this.surface === 'water' ? 1.8 : 1), this.surface === 'water' ? 0.45 : 0.2, 0.6 + Math.random() * 0.4, this.spray)
     }
 
     // Dust off the road edge

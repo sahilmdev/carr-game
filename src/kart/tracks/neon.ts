@@ -74,6 +74,7 @@ const POINTS: TrackPoint[] = [
 export const neon: TrackDef = {
   id: 'neon',
   name: 'Neon City',
+  news: ['RUSH HOUR - TRAMS RUNNING', 'BLACKOUT'],
   ambience: 'city',
   width: 18,
   bank: 1.6,

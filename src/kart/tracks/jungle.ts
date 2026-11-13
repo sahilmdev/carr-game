@@ -91,13 +91,18 @@ const POINTS: TrackPoint[] = [
   [-220, 16, 95],
   [-110, 14, 80, { items: true }],
   [40, 12, 40],
-  [130, 12, 110],
-  [178, 13, 140],
+  // the last corner, onto the village straight: opened out and banked, so it
+  // reads from a long way off instead of arriving all at once
+  [118, 12, 138],
+  [170, 13, 156, { bank: 4, w: 20 }],
+  [205, 13, 143, { bank: 4, w: 20 }],
+  [216, 13, 108],
 ]
 
 export const jungle: TrackDef = {
   id: 'jungle',
   name: 'Rainforest Run',
+  news: ['THE RAIN STARTS - WATCH THE TEMPLE TRAP', 'THE RIVER IS UP'],
   ambience: 'jungle',
   width: 17,
   bank: 3,

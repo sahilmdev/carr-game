@@ -46,6 +46,7 @@ function portraitTexture(seed: number): THREE.CanvasTexture {
 export const manor: TrackDef = {
   id: 'manor',
   name: 'Hollow Manor',
+  news: ['THE STORM BREAKS - THE CELLAR IS OPEN', 'THE RESIDENTS ARE OUT'],
   ambience: 'snow',
   width: 15,
   bank: 2.2,

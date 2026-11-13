@@ -95,3 +95,5 @@ tree_stump_01, utility_box_01, utility_box_02, water_manhole_cover, wild_rooibos
 | `cars/mohawk.glb` | Mohawk | ["Rayback Mohawk" by Swiss_Fox](https://sketchfab.com/3d-models/2c5ea0d5f73246549c0b9b68f53627e9) | CC-BY 4.0. Textures resized; showroom props removed in game |
 | `cars/patriot.glb` | Patriot XR | ["Patriot P10-XR" by Swiss_Fox](https://sketchfab.com/3d-models/d87ddc3e30134ff2990d8ee4d2586bdd) | CC-BY 4.0. Textures resized; showroom props removed in game |
 | `cars/coupe.glb` | Meridian GT | ["Generic Sport Coupé Car" by mmcworks](https://sketchfab.com/3d-models/820a13c4831c41959ce75e6c2014e882) | CC-BY 4.0. Textures resized |
+| `cars/cartoon.glb` | Zephyr (replaces Rotor GT) | ["Modern Cartoon Sports Car" by RCC Design](https://sketchfab.com/3d-models/modern-cartoon-sports-car-2186dbdfe51a42f9ae230431d1e9d754) | CC-BY 4.0. Textures resized to 1024 px |
+| `cars/sr8.glb` | Vortex SR (replaces Aurora) | ["Supercar" by SINNIK](https://sketchfab.com/3d-models/supercar-e98352625a4046b3a74369aa44e10930) | CC-BY 4.0. Interior removed and simplified to ~90k triangles in Blender |

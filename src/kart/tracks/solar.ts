@@ -81,6 +81,7 @@ function spaceMaterial(): THREE.ShaderMaterial {
 export const solar: TrackDef = {
   id: 'solar',
   name: 'Solar Crown',
+  news: ['SOLAR FLARE', 'DEBRIS ON THE ROAD'],
   ambience: 'space',
   width: 17,
   bank: 3,
@@ -373,6 +374,10 @@ function glassTube(k: BuildKit, tube: Circuit): void {
   for (let i = 0; i < tube.count; i += 3) {
     if (!tube.tunnel[i]) continue
     const p = tube.samples[i]!, t = tube.tangents[i]!, half = tube.widths[i]! / 2 + 1.4, yaw = Math.atan2(-t.x, -t.z)
+    // not while the tube still lies over the main road at its fork and join:
+    // the glass and hoops stood across the road coming out of the corkscrew
+    const main = k.circuit
+    if ((main.near(p.x, p.z) ?? []).some((j) => Math.abs(main.samples[j]!.y - p.y) < 6 && Math.hypot(main.samples[j]!.x - p.x, main.samples[j]!.z - p.z) < main.widths[j]! / 2 + half + 1)) continue
     if (i % 9 === 0) hoops.add(new THREE.TorusGeometry(half, 0.35, 6, 24, Math.PI), trs(p.x, p.y - 0.6, p.z, yaw, 1), 0xdfe4ea)
     pane.add(new THREE.CylinderGeometry(half, half, 6.6, 20, 1, true, Math.PI / 2, Math.PI), new THREE.Matrix4().compose(new THREE.Vector3(p.x, p.y - 0.6, p.z), new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2, yaw, 0, 'YXZ')), new THREE.Vector3(1, 1, 1)), 0xffffff)
   }

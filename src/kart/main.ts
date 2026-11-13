@@ -1,7 +1,8 @@
 import '../style.css'
+import '../cinema.css'
 import { KartApp, fmt, type KartUI, type RaceResultRow } from './KartApp'
 import { Lobby } from '../ui/Lobby'
-import { CUPS, saveTrophy, savedCar, trackById, type CupInfo, type CupTrophy, type TrackInfo } from '../game/Catalog'
+import { CUPS, TRACKS, saveTrophy, savedCar, trackById, type CupInfo, type CupTrophy, type TrackInfo } from '../game/Catalog'
 import { PAINTS, paintUnlocked, savePaint, savedPaint, CHALLENGES } from '../game/Progress'
 import { DEFAULT_SETTINGS, loadSettings, saveSettings, type Settings } from '../ui/Settings'
 import type { Difficulty } from './Rival'
@@ -33,6 +34,8 @@ let toastTimer = 0
 
 /** Item icons, drawn as SVG so they stay sharp. */
 const ITEM_ICONS: Record<string, string> = {
+  comet: '<svg viewBox="0 0 64 64"><defs><linearGradient id="itc" x1="1" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#ff4a8a" stop-opacity="0"/></linearGradient></defs><path d="M8 56 L40 20 L46 26 Z" fill="url(#itc)"/><circle cx="44" cy="20" r="11" fill="#ffd64a" stroke="#fff" stroke-width="2.5"/></svg>',
+  storm: '<svg viewBox="0 0 64 64"><path d="M14 30 a12 12 0 0 1 22 -10 a10 10 0 0 1 16 10 a8 8 0 0 1 -2 16 H18 a8 8 0 0 1 -4 -16 Z" fill="#5a6478" stroke="#fff" stroke-width="2.5"/><path d="M34 36 L26 50 H33 L28 60 L42 44 H35 L40 36 Z" fill="#ffe14a" stroke="#fff" stroke-width="1.5"/></svg>',
   turbo: '<svg viewBox="0 0 64 64"><defs><linearGradient id="it1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff6a0"/><stop offset="1" stop-color="#ff7a1a"/></linearGradient></defs><path d="M14 40 L34 10 L32 28 L50 24 L30 54 L32 36 Z" fill="url(#it1)" stroke="#fff" stroke-width="2.5" stroke-linejoin="round"/></svg>',
   triple: '<svg viewBox="0 0 64 64"><g stroke="#fff" stroke-width="2" stroke-linejoin="round" fill="#ffb02a"><path d="M6 34 L18 14 L17 26 L28 23 L16 44 L17 32 Z"/><path d="M36 34 L48 14 L47 26 L58 23 L46 44 L47 32 Z"/><path d="M21 52 L33 32 L32 44 L43 41 L31 62 L32 50 Z" fill="#ffe070"/></g></svg>',
   dart: '<svg viewBox="0 0 64 64"><defs><linearGradient id="it2" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#1a8cff" stop-opacity="0"/><stop offset="0.5" stop-color="#5ad8ff"/><stop offset="1" stop-color="#e8fbff"/></linearGradient></defs><path d="M8 56 L40 24" stroke="url(#it2)" stroke-width="8" stroke-linecap="round"/><path d="M36 16 L56 8 L48 28 Z" fill="#e8fbff" stroke="#5ad8ff" stroke-width="2"/></svg>',
@@ -60,6 +63,18 @@ function setItem(kind: string | null, rolling: boolean, count: number): void {
   void box.offsetWidth
   box.classList.add('ready')
 }
+const TIPS = [
+  'Hold a drift and let go for a boost. Longer drifts boost harder.',
+  'Tap the brake just after a jump for a trick boost on landing.',
+  'Side roads have their own items. Taking one never means missing out.',
+  'The track changes on lap 2 and again on the last lap. Watch for the banner.',
+  'Fall off and the recovery drone sets you back on the road.',
+  'In last place, item crystals give stronger catch-up items.',
+  'Nitro fills up as you drift. Save it for the jumps that need it.',
+]
+// the track pictures (menu tiles, loading cards): fetched up front so they're there when needed
+for (const t of TRACKS) new Image().src = `${import.meta.env.BASE_URL}previews/${t.id}.jpg`
+
 const ordinal = (n: number) => `${n}${['th', 'st', 'nd', 'rd'][n % 10 > 3 || Math.floor(n / 10) === 1 ? 0 : n % 10]}`
 
 const ui: KartUI = {
@@ -69,7 +84,8 @@ const ui: KartUI = {
     speedArc.setAttribute('stroke-dasharray', `${(Math.min(mph, GAUGE_MAX_MPH) / GAUGE_MAX_MPH * 100).toFixed(1)} 100`)
   },
   setLap: (c, t) => { hudLap.textContent = `LAP ${c}/${t}`; hudLap.classList.remove('hidden') },
-  setPlace: (p, of) => { $('hud-place').innerHTML = `${ordinal(p)}<small>/${of}</small>` },
+  // (alone in a time trial there's no place to show)
+  setPlace: (p, of) => { const el = $('hud-place'); el.classList.toggle('hidden', of <= 1); el.innerHTML = `${ordinal(p)}<small>/${of}</small>` },
   setNitro: (l, a) => { nitroFill.setAttribute('stroke-dasharray', `${(l * 100).toFixed(1)} 100`); nitroBox.classList.toggle('active', a) },
   setItem: (kind, rolling, count) => setItem(kind, rolling, count),
   warn: (t) => { const w = $('hud-warn'); w.textContent = t ?? ''; w.classList.toggle('hidden', !t) },
@@ -98,13 +114,24 @@ const ui: KartUI = {
     $('race-end').classList.add('hidden')
   },
   raceEnded: (rows) => showResults(rows),
+  raceUpdate: (rows) => drawResults(rows),
   replay: (on) => {
     $('replay-bar').classList.toggle('hidden', !on)
     $('race-end').classList.toggle('hidden', on)
   },
   loading: (on, text) => {
-    $('track-loading').classList.toggle('hidden', !on)
-    if (text) $('track-loading-name').textContent = text
+    const box = $('track-loading')
+    box.classList.toggle('hidden', !on)
+    if (!text) return
+    $('track-loading-name').textContent = text
+    // the track's colours, its picture and its blurb, and a tip while you wait
+    const t = TRACKS.find((x) => x.name === text)
+    $('track-loading-blurb').textContent = t?.blurb ?? ''
+    $('track-loading-tip').textContent = TIPS[Math.floor(Math.random() * TIPS.length)]!
+    box.style.setProperty('--tl-a', t?.tint[0] ?? '#1a1030')
+    box.style.setProperty('--tl-b', t?.tint[1] ?? '#05060c')
+    box.classList.toggle('has-pic', !!t)
+    if (t) box.style.setProperty('--tl-pic', `url("${import.meta.env.BASE_URL}previews/${t.id}.jpg")`)
   },
 }
 
@@ -135,50 +162,81 @@ bindTouch('touch-item', (a) => app.input.setTouchItem(a))
 new MutationObserver(() => touch.classList.toggle('hidden', !isTouch || hud.classList.contains('hidden'))).observe(hud, { attributes: true, attributeFilter: ['class'] })
 
 // ── the current run ──
-interface Run { cup: CupInfo | null; round: number; track: string; laps: number; difficulty: Difficulty; totals: Map<string, number> }
+interface Run { cup: CupInfo | null; round: number; track: string; laps: number; difficulty: Difficulty; totals: Map<string, number>; trial?: boolean }
 let run: Run | null = null
 
 async function beginRace(): Promise<void> {
   if (!run) return
   await app.settled()
   if (app.def?.id !== run.track) await app.loadTrack(run.track)
+  // your best-lap ghost only rides along in a time trial, never in a race against rivals
+  app.ghostOn = !!run.trial
+  app.solo = !!run.trial
   await app.startRace(run.laps, run.difficulty)
+}
+
+/** The results table; in a cup, the points this place is worth and where that leaves the standings. */
+function drawResults(rows: RaceResultRow[]): void {
+  if (!run) return
+  const cup = run.cup, table = $('end-table')
+  table.innerHTML = ''
+  rows.forEach((row, k) => {
+    const tr = document.createElement('div')
+    tr.className = `end-row${row.isPlayer ? ' me' : ''}`
+    const time = row.finished ? fmt(row.timeMs) : 'Racing'
+    tr.innerHTML = `<span>${k + 1}</span><span>${row.name}</span><span>${time}</span>${cup ? `<span>+${POINTS[k] ?? 0}</span><span>${(run!.totals.get(row.name) ?? 0) + (POINTS[k] ?? 0)}</span>` : ''}`
+    table.append(tr)
+  })
+}
+
+/** The race is decided for good (leaving the results): points go on the board from the final order. */
+function settleRace(): [string, number][] {
+  const r = run!
+  app.finalRows().forEach((row, k) => r.totals.set(row.name, (r.totals.get(row.name) ?? 0) + (POINTS[k] ?? 0)))
+  return [...r.totals.entries()].sort((a, b) => b[1] - a[1])
 }
 
 function showResults(rows: RaceResultRow[]): void {
   hud.classList.add('hidden')
   if (!run) return
-  const r = run
-  const totals = r.totals
-  rows.forEach((row, k) => totals.set(row.name, (totals.get(row.name) ?? 0) + (POINTS[k] ?? 0)))
-  const table = $('end-table')
-  table.innerHTML = ''
-  const cup = r.cup
-  const list = cup ? [...totals.entries()].sort((a, b) => b[1] - a[1]) : []
-  rows.forEach((row, k) => {
-    const tr = document.createElement('div')
-    tr.className = `end-row${row.isPlayer ? ' me' : ''}`
-    const time = row.finished ? fmt(row.timeMs) : 'Still racing'
-    tr.innerHTML = `<span>${k + 1}</span><span>${row.name}</span><span>${time}</span>${cup ? `<span>+${POINTS[k] ?? 0}</span><span>${totals.get(row.name)}</span>` : ''}`
-    table.append(tr)
-  })
+  const r = run, cup = r.cup
+  drawResults(rows)
   $('end-race-name').textContent = trackById(r.track).name
   const lastRound = !!cup && r.round >= cup.races.length - 1
-  $('end-round').textContent = cup ? `${cup.name}  ·  Race ${r.round + 1} of ${cup.races.length}` : `${r.laps} ${r.laps === 1 ? 'lap' : 'laps'}`
+  $('end-round').textContent = cup ? `${cup.name}  ·  Race ${r.round + 1} of ${cup.races.length}` : r.trial ? 'Time trial' : `${r.laps} ${r.laps === 1 ? 'lap' : 'laps'}`
+  $('end-main').classList.remove('hidden')
+  $('end-again').classList.add('hidden')
   const next = $('end-next') as HTMLButtonElement
-  next.textContent = cup ? (lastRound ? 'See results' : 'Next race') : 'Restart this race'
-  $('end-other').classList.toggle('hidden', !!cup)
+  // a cup goes on to the next race (no restarts); a single race offers another go
+  next.textContent = cup ? (lastRound ? 'See results' : 'Continue') : 'Play again'
   $('end-replay').classList.toggle('hidden', !app.hasReplay)
   $('race-end').classList.remove('hidden')
   next.focus()
   next.onclick = () => {
-    if (cup && lastRound) { cupFinished(cup, list); return }
-    if (cup) { r.round++; r.track = cup.races[r.round]! }
-    if (cup && r.track === 'tour') { toTour(r); return }
+    if (!cup) {
+      $('end-main').classList.add('hidden')
+      $('end-again').classList.remove('hidden')
+      $('end-restart').focus()
+      return
+    }
+    const standings = settleRace()
+    if (lastRound) { cupFinished(cup, standings); return }
+    r.round++; r.track = cup.races[r.round]!
+    if (r.track === 'tour') { toTour(r); return }
     $('race-end').classList.add('hidden')
     void beginRace()
   }
 }
+$('end-restart').addEventListener('click', () => {
+  if (!run) return
+  $('race-end').classList.add('hidden')
+  void beginRace()
+})
+$('end-again-back').addEventListener('click', () => {
+  $('end-again').classList.add('hidden')
+  $('end-main').classList.remove('hidden')
+  ;($('end-next') as HTMLButtonElement).focus()
+})
 
 /** The Grand Tour runs in its own page: keep the cup's state, go, and come back with a medal. */
 const CUP_RUN_KEY = 'nc-cup-run', TOUR_MEDAL_KEY = 'nc-cup-tour-medal'
@@ -216,6 +274,8 @@ function cupFinished(cup: CupInfo, standings: [string, number][]): void {
   const place = standings.findIndex(([n]) => n === 'You') + 1
   const trophy: CupTrophy | null = place === 1 ? 'gold' : place === 2 ? 'silver' : place === 3 ? 'bronze' : null
   if (trophy) saveTrophy(cup.id, trophy)
+  // the top three on the podium behind the standings
+  app.showPodium(standings.slice(0, 3).map(([n]) => n))
   $('cup-end-title').textContent = trophy ? `${trophy} trophy` : 'No trophy this time'
   $('cup-end-title').className = `cup-end-title ${trophy ?? ''}`
   $('cup-end-sub').textContent = `${cup.name}: you finished ${ordinal(place)}.`
@@ -259,16 +319,18 @@ const lobby = new Lobby({
     if (app.def?.id === t.id) app.startPreview()
   },
   async stopPreview() {
-    if (app.def?.id !== DEFAULT_TRACK) await app.loadTrack(DEFAULT_TRACK, true)
+    // keep whatever track is behind the menu; only load one if there is none
+    if (!app.def) await app.loadTrack(DEFAULT_TRACK, true)
     await app.settled()
     app.showGrid()
   },
+  carView(on) { app.turntable = on },
   startCup(cup, difficulty) {
     run = { cup, round: 0, track: cup.races[0]!, laps: 3, difficulty, totals: new Map() }
     void beginRace()
   },
-  startTrack(t, laps, difficulty) {
-    run = { cup: null, round: 0, track: t.id, laps, difficulty, totals: new Map() }
+  startTrack(t, laps, difficulty, trial) {
+    run = { cup: null, round: 0, track: t.id, laps, difficulty, totals: new Map(), trial }
     void beginRace()
   },
   startTour() { location.href = `${location.pathname}?tour` },
@@ -336,17 +398,53 @@ function openSettings(): void {
 }
 function closeSettings(): void {
   settingsEl.classList.add('hidden')
+  // opened from the pause menu: back to it, still paused
+  if (!pauseEl.classList.contains('hidden')) { ($('pause-settings') as HTMLButtonElement).focus(); return }
   if (pausedForSettings) app.setPaused(false)
   pausedForSettings = false
 }
+
+// ── the pause menu: Esc in a race ──
+const pauseEl = $('pause')
+function openPause(): void {
+  if (!run || !(app.phase === 'racing' || app.phase === 'countdown')) return
+  app.setPaused(true)
+  pausedForSettings = true
+  const cup = run.cup
+  $('pause-kicker').textContent = cup ? `${cup.name}  ·  Race ${run.round + 1} of ${cup.races.length}` : run.trial ? 'Time trial' : 'Single race'
+  $('pause-title').textContent = trackById(run.track).name
+  // a cup is raced through: no restarts there
+  $('pause-restart').classList.toggle('hidden', !!cup)
+  pauseEl.classList.remove('hidden')
+  ;($('pause-resume') as HTMLButtonElement).focus()
+}
+function closePause(): void {
+  pauseEl.classList.add('hidden')
+  settingsEl.classList.add('hidden')
+  app.setPaused(false)
+  pausedForSettings = false
+}
+$('pause-resume').addEventListener('click', closePause)
+$('pause-settings').addEventListener('click', openSettings)
+$('pause-restart').addEventListener('click', () => { closePause(); void beginRace() })
+$('pause-exit').addEventListener('click', () => { closePause(); backToLobby() })
+pauseEl.addEventListener('keydown', (e) => {
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+  e.preventDefault()
+  const list = Array.from(pauseEl.querySelectorAll<HTMLButtonElement>('.menu-item')).filter((b) => !b.classList.contains('hidden'))
+  const at = list.indexOf(document.activeElement as HTMLButtonElement)
+  list[(at + (e.key === 'ArrowDown' ? 1 : -1) + list.length) % list.length]!.focus()
+})
+
 $('settings-open').addEventListener('click', openSettings)
-$('hud-settings-btn').addEventListener('click', openSettings)
+$('hud-settings-btn').addEventListener('click', openPause)
 $('settings-close').addEventListener('click', closeSettings)
 settingsEl.addEventListener('click', (e) => { if (e.target === settingsEl) closeSettings() })
 window.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return
   if (!settingsEl.classList.contains('hidden')) closeSettings()
-  else if (app.phase === 'racing' || app.phase === 'countdown') openSettings()
+  else if (!pauseEl.classList.contains('hidden')) closePause()
+  else if (app.phase === 'racing' || app.phase === 'countdown') openPause()
 })
 const muteBtn = $('mute-btn')
 muteBtn.addEventListener('click', () => {
@@ -371,8 +469,8 @@ app.applySettings(settings)
   window.addEventListener('keydown', (e) => { if (e.code === 'KeyF') el.style.display = el.style.display === 'none' ? 'block' : 'none' })
 }
 
-// first screen: the car on the Cosmos Bay grid
-void app.setCar(savedCar()).then(() => app.loadTrack(DEFAULT_TRACK))
+// first screen: the title's live track (the lobby has already started loading it); Cosmos Bay only as a fallback
+void app.setCar(savedCar()).then(() => app.settled()).then(() => (app.def ? undefined : app.loadTrack(DEFAULT_TRACK)))
 resumeCupAfterTour()
 void CUPS
 
